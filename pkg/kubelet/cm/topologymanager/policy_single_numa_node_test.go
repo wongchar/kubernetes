@@ -29,7 +29,7 @@ func TestPolicySingleNumaNodeCanAdmitPodResult(t *testing.T) {
 	}{
 		{
 			name:     "Preferred is set to false in topology hints",
-			hint:     TopologyHint{nil, false},
+			hint:     TopologyHint{nil, nil, false},
 			expected: false,
 		},
 	}

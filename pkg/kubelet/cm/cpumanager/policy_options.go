@@ -29,12 +29,13 @@ import (
 
 // Names of the options, as part of the user interface.
 const (
-	FullPCPUsOnlyOption             string = "full-pcpus-only"
-	DistributeCPUsAcrossNUMAOption  string = "distribute-cpus-across-numa"
-	AlignBySocketOption             string = "align-by-socket"
-	DistributeCPUsAcrossCoresOption string = "distribute-cpus-across-cores"
-	StrictCPUReservationOption      string = "strict-cpu-reservation"
-	PreferAlignByUnCoreCacheOption  string = "prefer-align-cpus-by-uncorecache"
+	FullPCPUsOnlyOption               string = "full-pcpus-only"
+	DistributeCPUsAcrossNUMAOption    string = "distribute-cpus-across-numa"
+	AlignBySocketOption               string = "align-by-socket"
+	DistributeCPUsAcrossCoresOption   string = "distribute-cpus-across-cores"
+	StrictCPUReservationOption        string = "strict-cpu-reservation"
+	PreferAlignByUnCoreCacheOption    string = "prefer-align-cpus-by-uncorecache"
+	PreferAlignPodByUnCoreCacheOption string = "prefer-align-pod-cpus-by-uncorecache"
 )
 
 var (
@@ -44,6 +45,7 @@ var (
 		DistributeCPUsAcrossCoresOption,
 		StrictCPUReservationOption,
 		PreferAlignByUnCoreCacheOption,
+		PreferAlignPodByUnCoreCacheOption,
 	)
 	betaOptions = sets.New[string](
 		FullPCPUsOnlyOption,
@@ -92,9 +94,12 @@ type StaticPolicyOptions struct {
 	DistributeCPUsAcrossCores bool
 	// Flag to remove reserved cores from the list of available cores
 	StrictCPUReservation bool
-	// Flag that makes best-effort to align CPUs to a uncorecache boundary
+	// Flag that makes best-effort to align container CPUs to a uncorecache boundary
 	// As long as there are CPUs available, pods will be admitted if the condition is not met.
 	PreferAlignByUncoreCacheOption bool
+	// Flag that makes best-effort to align pod CPUs to a uncorecache boundary
+	// As long as there are CPUs available, pods will be admitted if the condition is not met.
+	PreferAlignPodByUncoreCacheOption bool
 }
 
 // NewStaticPolicyOptions creates a StaticPolicyOptions struct from the user configuration.
@@ -142,6 +147,12 @@ func NewStaticPolicyOptions(policyOptions map[string]string) (StaticPolicyOption
 				return opts, fmt.Errorf("bad value for option %q: %w", name, err)
 			}
 			opts.PreferAlignByUncoreCacheOption = optValue
+		case PreferAlignPodByUnCoreCacheOption:
+			optValue, err := strconv.ParseBool(value)
+			if err != nil {
+				return opts, fmt.Errorf("bad value for option %q: %w", name, err)
+			}
+			opts.PreferAlignPodByUncoreCacheOption = optValue
 		default:
 			// this should never be reached, we already detect unknown options,
 			// but we keep it as further safety.
@@ -165,6 +176,18 @@ func NewStaticPolicyOptions(policyOptions map[string]string) (StaticPolicyOption
 	if opts.PreferAlignByUncoreCacheOption && opts.DistributeCPUsAcrossNUMA {
 		return opts, fmt.Errorf("static policy options %s and %s can not be used at the same time", PreferAlignByUnCoreCacheOption, DistributeCPUsAcrossNUMAOption)
 	}
+
+	if opts.PreferAlignPodByUncoreCacheOption && opts.DistributeCPUsAcrossCores {
+		return opts, fmt.Errorf("static policy options %s and %s can not be used at the same time", PreferAlignPodByUnCoreCacheOption, DistributeCPUsAcrossCoresOption)
+	}
+
+	if opts.PreferAlignPodByUncoreCacheOption && opts.DistributeCPUsAcrossNUMA {
+		return opts, fmt.Errorf("static policy options %s and %s can not be used at the same time", PreferAlignPodByUnCoreCacheOption, DistributeCPUsAcrossNUMAOption)
+	}
+
+	/* 	if opts.PreferAlignPodByUncoreCacheOption && opts.PreferAlignByUncoreCacheOption {
+		return opts, fmt.Errorf("static policy options %s and %s can not be used at the same time", PreferAlignPodByUnCoreCacheOption, PreferAlignByUnCoreCacheOption)
+	} */
 
 	return opts, nil
 }

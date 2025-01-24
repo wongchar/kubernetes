@@ -750,7 +750,7 @@ func TestTakeByTopologyNUMAPacked(t *testing.T) {
 				strategy = CPUSortingStrategySpread
 			}
 
-			result, err := takeByTopologyNUMAPacked(tc.topo, tc.availableCPUs, tc.numCPUs, strategy, tc.opts.PreferAlignByUncoreCacheOption)
+			result, err := takeByTopologyNUMAPacked(tc.topo, tc.availableCPUs, tc.numCPUs, strategy, tc.opts.PreferAlignByUncoreCacheOption, tc.opts.PreferAlignPodByUncoreCacheOption, nil)
 			if tc.expErr != "" && err != nil && err.Error() != tc.expErr {
 				t.Errorf("expected error to be [%v] but it was [%v]", tc.expErr, err)
 			}
@@ -851,7 +851,7 @@ func TestTakeByTopologyWithSpreadPhysicalCPUsPreferredOption(t *testing.T) {
 		if tc.opts.DistributeCPUsAcrossCores {
 			strategy = CPUSortingStrategySpread
 		}
-		result, err := takeByTopologyNUMAPacked(tc.topo, tc.availableCPUs, tc.numCPUs, strategy, tc.opts.PreferAlignByUncoreCacheOption)
+		result, err := takeByTopologyNUMAPacked(tc.topo, tc.availableCPUs, tc.numCPUs, strategy, tc.opts.PreferAlignByUncoreCacheOption, tc.opts.PreferAlignPodByUncoreCacheOption, nil)
 		if tc.expErr != "" && err.Error() != tc.expErr {
 			t.Errorf("testCase %q failed, expected error to be [%v] but it was [%v]", tc.description, tc.expErr, err)
 		}

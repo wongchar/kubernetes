@@ -194,8 +194,9 @@ func (m *ManagerImpl) generateDeviceTopologyHints(resource string, available set
 		// list of hints.  We set all hint preferences to 'false' on the first
 		// pass through.
 		hints = append(hints, topologymanager.TopologyHint{
-			NUMANodeAffinity: mask,
-			Preferred:        false,
+			NUMANodeAffinity:       mask,
+			UncoreCachePodAffinity: bitmask.NewEmptyBitMask(),
+			Preferred:              false,
 		})
 	})
 

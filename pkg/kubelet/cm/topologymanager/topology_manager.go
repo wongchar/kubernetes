@@ -103,6 +103,8 @@ type Store interface {
 // TopologyHint is a struct containing the NUMANodeAffinity for a Container
 type TopologyHint struct {
 	NUMANodeAffinity bitmask.BitMask
+	// Add Hint to track uncore cache assignments for containers
+	UncoreCachePodAffinity bitmask.BitMask
 	// Preferred is set to true when the NUMANodeAffinity encodes a preferred
 	// allocation for the Container. It is set to false otherwise.
 	Preferred bool

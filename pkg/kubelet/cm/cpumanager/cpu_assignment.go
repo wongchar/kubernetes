@@ -24,6 +24,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/topology"
+	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
 	"k8s.io/utils/cpuset"
 )
 
@@ -558,7 +559,7 @@ func (a *cpuAccumulator) takeFullUncore() {
 	}
 }
 
-func (a *cpuAccumulator) takePartialUncore(uncoreID int) {
+func (a *cpuAccumulator) takePartialUncore(uncoreID int, podAlignment bool, uncoreAffinity bitmask.BitMask) {
 	numCoresNeeded := a.numCPUsNeeded / a.topo.CPUsPerCore()
 
 	// determine the N number of free cores (physical cpus) within the UncoreCache, then
@@ -579,12 +580,29 @@ func (a *cpuAccumulator) takePartialUncore(uncoreID int) {
 
 	}
 	a.take(freeCPUs)
+
+	freeCores = a.details.CoresNeededInUncoreCache(1, uncoreID)
+	freeCPUs = a.details.CPUsInCores(freeCores.UnsortedList()...)
+	if podAlignment && freeCPUs.Size() > 0 {
+		uncoreAffinity.Add(uncoreID)
+	}
+	if podAlignment && freeCPUs.Size() == 0 {
+		uncoreAffinity.Remove(uncoreID)
+	}
 }
 
 // First try to take full UncoreCache, if available and need is at least the size of the UncoreCache group.
 // Second try to take the partial UncoreCache if available and the request size can fit w/in the UncoreCache.
-func (a *cpuAccumulator) takeUncoreCache() {
+func (a *cpuAccumulator) takeUncoreCache(podAlignment bool, uncoreAffinity bitmask.BitMask) {
 	numCPUsInUncore := a.topo.CPUsPerUncore()
+
+	if a.needsLessThan(numCPUsInUncore) && podAlignment && !uncoreAffinity.IsEmpty() {
+		uncoreBits := uncoreAffinity.GetBits()
+		for _, uncore := range uncoreBits {
+			a.takePartialUncore(uncore, podAlignment, uncoreAffinity)
+		}
+	}
+
 	for _, uncore := range a.sortAvailableUncoreCaches() {
 		// take full UncoreCache if the CPUs needed is greater than free UncoreCache size
 		if a.needsAtLeast(numCPUsInUncore) {
@@ -596,7 +614,7 @@ func (a *cpuAccumulator) takeUncoreCache() {
 		}
 
 		// take partial UncoreCache if the CPUs needed is less than free UncoreCache size
-		a.takePartialUncore(uncore)
+		a.takePartialUncore(uncore, podAlignment, uncoreAffinity)
 		if a.isSatisfied() {
 			return
 		}
@@ -661,6 +679,11 @@ func (a *cpuAccumulator) rangeNUMANodesNeededToSatisfy(cpuGroupSize int) (minNum
 // This means that needsAtLeast returns true even if more than `n` CPUs are needed.
 func (a *cpuAccumulator) needsAtLeast(n int) bool {
 	return a.numCPUsNeeded >= n
+}
+
+// needsLessThan returns true if and only if the accumulator needs less than `n` CPUs.
+func (a *cpuAccumulator) needsLessThan(n int) bool {
+	return a.numCPUsNeeded < n
 }
 
 // isSatisfied returns true if and only if the accumulator has all the CPUs it needs.
@@ -750,7 +773,7 @@ func (a *cpuAccumulator) iterateCombinations(n []int, k int, f func([]int) LoopC
 // the least amount of free CPUs to the one with the highest amount of free CPUs (i.e. in ascending
 // order of free CPUs). For any NUMA node, the cores are selected from the ones in the socket with
 // the least amount of free CPUs to the one with the highest amount of free CPUs.
-func takeByTopologyNUMAPacked(topo *topology.CPUTopology, availableCPUs cpuset.CPUSet, numCPUs int, cpuSortingStrategy CPUSortingStrategy, preferAlignByUncoreCache bool) (cpuset.CPUSet, error) {
+func takeByTopologyNUMAPacked(topo *topology.CPUTopology, availableCPUs cpuset.CPUSet, numCPUs int, cpuSortingStrategy CPUSortingStrategy, preferAlignByUncoreCache bool, uncoreCachePodAlignment bool, uncoreCacheAffinity bitmask.BitMask) (cpuset.CPUSet, error) {
 	acc := newCPUAccumulator(topo, availableCPUs, numCPUs, cpuSortingStrategy)
 	if acc.isSatisfied() {
 		return acc.result, nil
@@ -777,7 +800,7 @@ func takeByTopologyNUMAPacked(topo *topology.CPUTopology, availableCPUs cpuset.C
 	//    if available and the container requires at least a UncoreCache's-worth
 	//    of CPUs. Otherwise, acquire CPUs from the least amount of UncoreCaches.
 	if preferAlignByUncoreCache {
-		acc.takeUncoreCache()
+		acc.takeUncoreCache(uncoreCachePodAlignment, uncoreCacheAffinity)
 		if acc.isSatisfied() {
 			return acc.result, nil
 		}
@@ -874,7 +897,7 @@ func takeByTopologyNUMADistributed(topo *topology.CPUTopology, availableCPUs cpu
 	// PreferAlignByUncoreCache feature not implemented here yet and set to false.
 	// Support for PreferAlignByUncoreCache to be done at beta release.
 	if (numCPUs % cpuGroupSize) != 0 {
-		return takeByTopologyNUMAPacked(topo, availableCPUs, numCPUs, cpuSortingStrategy, false)
+		return takeByTopologyNUMAPacked(topo, availableCPUs, numCPUs, cpuSortingStrategy, false, false, nil)
 	}
 
 	// Otherwise build an accumulator to start allocating CPUs from.
@@ -1057,7 +1080,7 @@ func takeByTopologyNUMADistributed(topo *topology.CPUTopology, availableCPUs cpu
 		// size 'cpuGroupSize' from 'bestCombo'.
 		distribution := (numCPUs / len(bestCombo) / cpuGroupSize) * cpuGroupSize
 		for _, numa := range bestCombo {
-			cpus, _ := takeByTopologyNUMAPacked(acc.topo, acc.details.CPUsInNUMANodes(numa), distribution, cpuSortingStrategy, false)
+			cpus, _ := takeByTopologyNUMAPacked(acc.topo, acc.details.CPUsInNUMANodes(numa), distribution, cpuSortingStrategy, false, false, nil)
 			acc.take(cpus)
 		}
 
@@ -1072,7 +1095,7 @@ func takeByTopologyNUMADistributed(topo *topology.CPUTopology, availableCPUs cpu
 				if acc.details.CPUsInNUMANodes(numa).Size() < cpuGroupSize {
 					continue
 				}
-				cpus, _ := takeByTopologyNUMAPacked(acc.topo, acc.details.CPUsInNUMANodes(numa), cpuGroupSize, cpuSortingStrategy, false)
+				cpus, _ := takeByTopologyNUMAPacked(acc.topo, acc.details.CPUsInNUMANodes(numa), cpuGroupSize, cpuSortingStrategy, false, false, nil)
 				acc.take(cpus)
 				remainder -= cpuGroupSize
 			}
@@ -1096,5 +1119,5 @@ func takeByTopologyNUMADistributed(topo *topology.CPUTopology, availableCPUs cpu
 
 	// If we never found a combination of NUMA nodes that we could properly
 	// distribute CPUs across, fall back to the packing algorithm.
-	return takeByTopologyNUMAPacked(topo, availableCPUs, numCPUs, cpuSortingStrategy, false)
+	return takeByTopologyNUMAPacked(topo, availableCPUs, numCPUs, cpuSortingStrategy, false, false, nil)
 }

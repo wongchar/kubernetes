@@ -65,7 +65,7 @@ func mergePermutation(defaultAffinity bitmask.BitMask, permutation []TopologyHin
 	mergedAffinity := bitmask.And(defaultAffinity, numaAffinities...)
 	// Build a mergedHint from the merged affinity mask, setting preferred as
 	// appropriate based on the logic above.
-	return TopologyHint{mergedAffinity, preferred}
+	return TopologyHint{mergedAffinity, nil, preferred}
 }
 
 func filterProvidersHints(providersHints []map[string][]TopologyHint) [][]TopologyHint {
@@ -77,7 +77,7 @@ func filterProvidersHints(providersHints []map[string][]TopologyHint) [][]Topolo
 		// If hints is nil, insert a single, preferred any-numa hint into allProviderHints.
 		if len(hints) == 0 {
 			klog.InfoS("Hint Provider has no preference for NUMA affinity with any resource")
-			allProviderHints = append(allProviderHints, []TopologyHint{{nil, true}})
+			allProviderHints = append(allProviderHints, []TopologyHint{{nil, nil, true}})
 			continue
 		}
 
@@ -85,13 +85,13 @@ func filterProvidersHints(providersHints []map[string][]TopologyHint) [][]Topolo
 		for resource := range hints {
 			if hints[resource] == nil {
 				klog.InfoS("Hint Provider has no preference for NUMA affinity with resource", "resource", resource)
-				allProviderHints = append(allProviderHints, []TopologyHint{{nil, true}})
+				allProviderHints = append(allProviderHints, []TopologyHint{{nil, nil, true}})
 				continue
 			}
 
 			if len(hints[resource]) == 0 {
 				klog.InfoS("Hint Provider has no possible NUMA affinities for resource", "resource", resource)
-				allProviderHints = append(allProviderHints, []TopologyHint{{nil, false}})
+				allProviderHints = append(allProviderHints, []TopologyHint{{nil, nil, false}})
 				continue
 			}
 
@@ -315,7 +315,7 @@ func (m HintMerger) Merge() TopologyHint {
 	})
 
 	if bestHint == nil {
-		bestHint = &TopologyHint{defaultAffinity, false}
+		bestHint = &TopologyHint{defaultAffinity, nil, false}
 	}
 
 	return *bestHint

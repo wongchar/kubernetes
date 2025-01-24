@@ -160,7 +160,7 @@ func NewStaticPolicy(topology *topology.CPUTopology, numReservedCPUs int, reserv
 		//
 		// For example: Given a system with 8 CPUs available and HT enabled,
 		// if numReservedCPUs=2, then reserved={0,4}
-		reserved, _ = policy.takeByTopology(allCPUs, numReservedCPUs)
+		reserved, _ = policy.takeByTopology(allCPUs, numReservedCPUs, nil)
 	}
 
 	if reserved.Size() != numReservedCPUs {
@@ -378,7 +378,7 @@ func (p *staticPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Contai
 	klog.InfoS("Topology Affinity", "pod", klog.KObj(pod), "containerName", container.Name, "affinity", hint)
 
 	// Allocate CPUs according to the NUMA affinity contained in the hint.
-	cpuset, err := p.allocateCPUs(s, numCPUs, hint.NUMANodeAffinity, p.cpusToReuse[string(pod.UID)])
+	cpuset, err := p.allocateCPUs(s, numCPUs, hint.NUMANodeAffinity, hint.UncoreCachePodAffinity, p.cpusToReuse[string(pod.UID)])
 	if err != nil {
 		klog.ErrorS(err, "Unable to allocate CPUs", "pod", klog.KObj(pod), "containerName", container.Name, "numCPUs", numCPUs)
 		return err
@@ -417,7 +417,7 @@ func (p *staticPolicy) RemoveContainer(s state.State, podUID string, containerNa
 	return nil
 }
 
-func (p *staticPolicy) allocateCPUs(s state.State, numCPUs int, numaAffinity bitmask.BitMask, reusableCPUs cpuset.CPUSet) (cpuset.CPUSet, error) {
+func (p *staticPolicy) allocateCPUs(s state.State, numCPUs int, numaAffinity bitmask.BitMask, uncoreCacheAffinity bitmask.BitMask, reusableCPUs cpuset.CPUSet) (cpuset.CPUSet, error) {
 	klog.InfoS("AllocateCPUs", "numCPUs", numCPUs, "socket", numaAffinity)
 
 	allocatableCPUs := p.GetAvailableCPUs(s).Union(reusableCPUs)
@@ -432,7 +432,7 @@ func (p *staticPolicy) allocateCPUs(s state.State, numCPUs int, numaAffinity bit
 			numAlignedToAlloc = numCPUs
 		}
 
-		alignedCPUs, err := p.takeByTopology(alignedCPUs, numAlignedToAlloc)
+		alignedCPUs, err := p.takeByTopology(alignedCPUs, numAlignedToAlloc, uncoreCacheAffinity)
 		if err != nil {
 			return cpuset.New(), err
 		}
@@ -441,7 +441,7 @@ func (p *staticPolicy) allocateCPUs(s state.State, numCPUs int, numaAffinity bit
 	}
 
 	// Get any remaining CPUs from what's leftover after attempting to grab aligned ones.
-	remainingCPUs, err := p.takeByTopology(allocatableCPUs.Difference(result), numCPUs-result.Size())
+	remainingCPUs, err := p.takeByTopology(allocatableCPUs.Difference(result), numCPUs-result.Size(), uncoreCacheAffinity)
 	if err != nil {
 		return cpuset.New(), err
 	}
@@ -511,7 +511,7 @@ func (p *staticPolicy) podGuaranteedCPUs(pod *v1.Pod) int {
 	return requestedByLongRunningContainers
 }
 
-func (p *staticPolicy) takeByTopology(availableCPUs cpuset.CPUSet, numCPUs int) (cpuset.CPUSet, error) {
+func (p *staticPolicy) takeByTopology(availableCPUs cpuset.CPUSet, numCPUs int, uncoreCacheAffinity bitmask.BitMask) (cpuset.CPUSet, error) {
 	cpuSortingStrategy := CPUSortingStrategyPacked
 	if p.options.DistributeCPUsAcrossCores {
 		cpuSortingStrategy = CPUSortingStrategySpread
@@ -525,7 +525,7 @@ func (p *staticPolicy) takeByTopology(availableCPUs cpuset.CPUSet, numCPUs int) 
 		return takeByTopologyNUMADistributed(p.topology, availableCPUs, numCPUs, cpuGroupSize, cpuSortingStrategy)
 	}
 
-	return takeByTopologyNUMAPacked(p.topology, availableCPUs, numCPUs, cpuSortingStrategy, p.options.PreferAlignByUncoreCacheOption)
+	return takeByTopologyNUMAPacked(p.topology, availableCPUs, numCPUs, cpuSortingStrategy, p.options.PreferAlignByUncoreCacheOption, p.options.PreferAlignPodByUncoreCacheOption, uncoreCacheAffinity)
 }
 
 func (p *staticPolicy) GetTopologyHints(s state.State, pod *v1.Pod, container *v1.Container) map[string][]topologymanager.TopologyHint {
@@ -680,8 +680,9 @@ func (p *staticPolicy) generateCPUTopologyHints(availableCPUs cpuset.CPUSet, reu
 		// list of hints.  We set all hint preferences to 'false' on the first
 		// pass through.
 		hints = append(hints, topologymanager.TopologyHint{
-			NUMANodeAffinity: mask,
-			Preferred:        false,
+			NUMANodeAffinity:       mask,
+			UncoreCachePodAffinity: bitmask.NewEmptyBitMask(),
+			Preferred:              false,
 		})
 	})
 

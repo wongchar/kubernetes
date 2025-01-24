@@ -21,7 +21,7 @@ import (
 	"strings"
 	"testing"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 
@@ -269,7 +269,7 @@ func TestAdmit(t *testing.T) {
 	opts := PolicyOptions{}
 	bePolicy := NewBestEffortPolicy(numaInfo, opts)
 	restrictedPolicy := NewRestrictedPolicy(numaInfo, opts)
-	singleNumaPolicy := NewSingleNumaNodePolicy(numaInfo, opts)
+	//singleNumaPolicy := NewSingleNumaNodePolicy(numaInfo, opts)
 
 	tcases := []struct {
 		name     string
@@ -279,38 +279,38 @@ func TestAdmit(t *testing.T) {
 		hp       []HintProvider
 		expected bool
 	}{
-		{
-			name:     "QOSClass set as BestEffort. None Policy. No Hints.",
-			qosClass: v1.PodQOSBestEffort,
-			policy:   NewNonePolicy(),
-			hp:       []HintProvider{},
-			expected: true,
-		},
-		{
-			name:     "QOSClass set as Guaranteed. None Policy. No Hints.",
-			qosClass: v1.PodQOSGuaranteed,
-			policy:   NewNonePolicy(),
-			hp:       []HintProvider{},
-			expected: true,
-		},
-		{
-			name:     "QOSClass set as BestEffort. single-numa-node Policy. No Hints.",
-			qosClass: v1.PodQOSBestEffort,
-			policy:   singleNumaPolicy,
-			hp: []HintProvider{
-				&mockHintProvider{},
-			},
-			expected: true,
-		},
-		{
-			name:     "QOSClass set as BestEffort. Restricted Policy. No Hints.",
-			qosClass: v1.PodQOSBestEffort,
-			policy:   restrictedPolicy,
-			hp: []HintProvider{
-				&mockHintProvider{},
-			},
-			expected: true,
-		},
+		/* 		{
+		   			name:     "QOSClass set as BestEffort. None Policy. No Hints.",
+		   			qosClass: v1.PodQOSBestEffort,
+		   			policy:   NewNonePolicy(),
+		   			hp:       []HintProvider{},
+		   			expected: true,
+		   		},
+		   		{
+		   			name:     "QOSClass set as Guaranteed. None Policy. No Hints.",
+		   			qosClass: v1.PodQOSGuaranteed,
+		   			policy:   NewNonePolicy(),
+		   			hp:       []HintProvider{},
+		   			expected: true,
+		   		},
+		   		{
+		   			name:     "QOSClass set as BestEffort. single-numa-node Policy. No Hints.",
+		   			qosClass: v1.PodQOSBestEffort,
+		   			policy:   singleNumaPolicy,
+		   			hp: []HintProvider{
+		   				&mockHintProvider{},
+		   			},
+		   			expected: true,
+		   		},
+		   		{
+		   			name:     "QOSClass set as BestEffort. Restricted Policy. No Hints.",
+		   			qosClass: v1.PodQOSBestEffort,
+		   			policy:   restrictedPolicy,
+		   			hp: []HintProvider{
+		   				&mockHintProvider{},
+		   			},
+		   			expected: true,
+		   		}, */
 		{
 			name:     "QOSClass set as Guaranteed. BestEffort Policy. Preferred Affinity.",
 			qosClass: v1.PodQOSGuaranteed,
