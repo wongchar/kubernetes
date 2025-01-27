@@ -581,16 +581,14 @@ func (a *cpuAccumulator) takePartialUncore(uncoreID int, podAlignment bool, unco
 	}
 	a.take(freeCPUs)
 
-	// determine the number of free cpus within the UncoreCache
 	freeCores = a.details.CoresNeededInUncoreCache(1, uncoreID)
 	freeCPUs = a.details.CPUsInCores(freeCores.UnsortedList()...)
-	// if there are no available cpus within the UncoreCache, remove the UncoreCache hint
+	if podAlignment && freeCPUs.Size() > 0 {
+		uncoreAffinity.Add(uncoreID)
+	}
 	if podAlignment && freeCPUs.Size() == 0 {
 		uncoreAffinity.Remove(uncoreID)
-		return
 	}
-	// mark the UncoreCache as a hint since there are still available cpus
-	uncoreAffinity.Add(uncoreID)
 }
 
 // First try to take full UncoreCache, if available and need is at least the size of the UncoreCache group.
