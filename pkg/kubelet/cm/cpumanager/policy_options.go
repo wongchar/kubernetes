@@ -35,7 +35,7 @@ const (
 	DistributeCPUsAcrossCoresOption   string = "distribute-cpus-across-cores"
 	StrictCPUReservationOption        string = "strict-cpu-reservation"
 	PreferAlignByUnCoreCacheOption    string = "prefer-align-cpus-by-uncorecache"
-	PreferAlignPodByUnCoreCacheOption string = "prefer-align-pod-cpus-by-uncorecache"
+	PreferAlignPodByUnCoreCacheOption string = "prefer-align-pod-by-uncorecache"
 )
 
 var (
@@ -185,9 +185,9 @@ func NewStaticPolicyOptions(policyOptions map[string]string) (StaticPolicyOption
 		return opts, fmt.Errorf("static policy options %s and %s can not be used at the same time", PreferAlignPodByUnCoreCacheOption, DistributeCPUsAcrossNUMAOption)
 	}
 
-	/* 	if opts.PreferAlignPodByUncoreCacheOption && opts.PreferAlignByUncoreCacheOption {
-		return opts, fmt.Errorf("static policy options %s and %s can not be used at the same time", PreferAlignPodByUnCoreCacheOption, PreferAlignByUnCoreCacheOption)
-	} */
+	if opts.PreferAlignPodByUncoreCacheOption && !opts.PreferAlignByUncoreCacheOption {
+		return opts, fmt.Errorf("static policy options %s can only be used while %s is enabled", PreferAlignPodByUnCoreCacheOption, PreferAlignByUnCoreCacheOption)
+	}
 
 	return opts, nil
 }
