@@ -334,6 +334,9 @@ func (p *staticPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Contai
 		metrics.ContainerAlignedComputeResources.WithLabelValues(metrics.AlignScopeContainer, metrics.AlignedPhysicalCPU).Inc()
 	}()
 
+	if p.options.PreferAlignPodByUncoreCacheOption {
+
+	}
 	podCPUSize := pod.XXX_Size()
 	klog.InfoS("Size", int(podCPUSize))
 
