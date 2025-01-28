@@ -334,6 +334,9 @@ func (p *staticPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Contai
 		metrics.ContainerAlignedComputeResources.WithLabelValues(metrics.AlignScopeContainer, metrics.AlignedPhysicalCPU).Inc()
 	}()
 
+	podCPUSize := pod.XXX_Size()
+	klog.InfoS("Size", int(podCPUSize))
+
 	if p.options.FullPhysicalCPUsOnly {
 		if (numCPUs % p.cpuGroupSize) != 0 {
 			// Since CPU Manager has been enabled requesting strict SMT alignment, it means a guaranteed pod can only be admitted

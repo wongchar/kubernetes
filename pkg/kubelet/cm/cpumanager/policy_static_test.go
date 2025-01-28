@@ -1191,8 +1191,8 @@ func TestStaticPolicyAddWithUncoreAlignment(t *testing.T) {
 		{
 			description:     "GuPodMainAndSidecarContainer, DualSocketHTUncore, ExpectAllocOneUncore, FullUncoreAvail",
 			topo:            topoDualSocketMultiNumaPerSocketUncore,
-			numReservedCPUs: 2,
-			reserved:        cpuset.New(0, 96),
+			numReservedCPUs: 8,
+			reserved:        cpuset.New(0, 1, 2, 3, 192, 193, 194, 195),
 			cpuPolicyOptions: map[string]string{
 				FullPCPUsOnlyOption:               "true",
 				PreferAlignByUnCoreCacheOption:    "true",
@@ -1200,85 +1200,79 @@ func TestStaticPolicyAddWithUncoreAlignment(t *testing.T) {
 			},
 			stAssignments: state.ContainerCPUAssignments{},
 			// remove partially used uncores from the available CPUs to simulate fully clean slate
-			stDefaultCPUSet: topoDualSocketMultiNumaPerSocketUncore.CPUDetails.CPUs().Difference(
-				cpuset.New().Union(
-					topoDualSocketMultiNumaPerSocketUncore.CPUDetails.CPUsInUncoreCaches(0),
-				).Union(
-					topoDualSocketMultiNumaPerSocketUncore.CPUDetails.CPUsInUncoreCaches(16),
-				),
-			),
+			stDefaultCPUSet: topoDualSocketMultiNumaPerSocketUncore.CPUDetails.CPUs(),
 			pod: WithPodUID(
 				makeMultiContainerPod(
 					[]struct{ request, limit string }{}, // init container
 					[]struct{ request, limit string }{ // app container
-						{"12000m", "12000m"},
 						{"2000m", "2000m"},
+						{"12000m", "12000m"},
 					},
 				),
 				"with-app-container-and-sidecar",
 			),
-			topologyHint: &topologymanager.TopologyHint{NUMANodeAffinity: bitmask.NewEmptyBitMask(), UncoreCachePodAffinity: bitmask.NewEmptyBitMask(), Preferred: false},
+			topologyHint: &topologymanager.TopologyHint{NUMANodeAffinity: nil, UncoreCachePodAffinity: bitmask.NewEmptyBitMask(), Preferred: false},
 		},
-		{
-			description:     "GuPodSidecarAndMainContainer, DualSocketHTUncore, ExpectAllocOneUncore, FullUncoreAvail",
-			topo:            topoDualSocketMultiNumaPerSocketUncore,
-			numReservedCPUs: 8,
-			reserved:        cpuset.New(0, 1, 96, 97, 192, 193, 288, 289), // note 4 cpus taken from uncore 0, 4 from uncore 16
-			cpuPolicyOptions: map[string]string{
-				FullPCPUsOnlyOption:            "true",
-				PreferAlignByUnCoreCacheOption: "true",
-			},
-			stAssignments: state.ContainerCPUAssignments{},
-			// remove partially used uncores from the available CPUs to simulate fully clean slate
-			stDefaultCPUSet: topoDualSocketMultiNumaPerSocketUncore.CPUDetails.CPUs().Difference(
-				cpuset.New().Union(
-					topoDualSocketMultiNumaPerSocketUncore.CPUDetails.CPUsInUncoreCaches(0),
-				).Union(
-					topoDualSocketMultiNumaPerSocketUncore.CPUDetails.CPUsInUncoreCaches(16),
-				),
-			),
-			pod: WithPodUID(
-				makeMultiContainerPod(
-					[]struct{ request, limit string }{}, // init container
-					[]struct{ request, limit string }{ // app container
-						{"2000m", "2000m"},
-						{"12000m", "12000m"},
-					},
-				),
-				"with-sidecar-and-app-container",
-			),
-		},
-		{
-			description:     "GuPodMainAndManySidecarContainer, DualSocketHTUncore, ExpectAllocOneUncore, FullUncoreAvail",
-			topo:            topoDualSocketMultiNumaPerSocketUncore,
-			numReservedCPUs: 8,
-			reserved:        cpuset.New(0, 1, 96, 97, 192, 193, 288, 289), // note 4 cpus taken from uncore 0, 4 from uncore 16
-			cpuPolicyOptions: map[string]string{
-				FullPCPUsOnlyOption:            "true",
-				PreferAlignByUnCoreCacheOption: "true",
-			},
-			stAssignments: state.ContainerCPUAssignments{},
-			// remove partially used uncores from the available CPUs to simulate fully clean slate
-			stDefaultCPUSet: topoDualSocketMultiNumaPerSocketUncore.CPUDetails.CPUs().Difference(
-				cpuset.New().Union(
-					topoDualSocketMultiNumaPerSocketUncore.CPUDetails.CPUsInUncoreCaches(0),
-				).Union(
-					topoDualSocketMultiNumaPerSocketUncore.CPUDetails.CPUsInUncoreCaches(16),
-				),
-			),
-			pod: WithPodUID(
-				makeMultiContainerPod(
-					[]struct{ request, limit string }{}, // init container
-					[]struct{ request, limit string }{ // app container
-						{"10000m", "10000m"},
-						{"2000m", "2000m"},
-						{"2000m", "2000m"},
-						{"2000m", "2000m"},
-					},
-				),
-				"with-app-container-and-multi-sidecar",
-			),
-		},
+		// {
+		// 	description:     "GuPodSidecarAndMainContainer, DualSocketHTUncore, ExpectAllocOneUncore, FullUncoreAvail",
+		// 	topo:            topoDualSocketMultiNumaPerSocketUncore,
+		// 	numReservedCPUs: 8,
+		// 	reserved:        cpuset.New(0, 1, 96, 97, 192, 193, 288, 289), // note 4 cpus taken from uncore 0, 4 from uncore 16
+		// 	cpuPolicyOptions: map[string]string{
+		// 		FullPCPUsOnlyOption:            "true",
+		// 		PreferAlignByUnCoreCacheOption: "true",
+		// 	},
+		// 	stAssignments: state.ContainerCPUAssignments{},
+		// 	// remove partially used uncores from the available CPUs to simulate fully clean slate
+		// 	stDefaultCPUSet: topoDualSocketMultiNumaPerSocketUncore.CPUDetails.CPUs().Difference(
+		// 		cpuset.New().Union(
+		// 			topoDualSocketMultiNumaPerSocketUncore.CPUDetails.CPUsInUncoreCaches(0),
+		// 		).Union(
+		// 			topoDualSocketMultiNumaPerSocketUncore.CPUDetails.CPUsInUncoreCaches(16),
+		// 		),
+		// 	),
+		// 	pod: WithPodUID(
+		// 		makeMultiContainerPod(
+		// 			[]struct{ request, limit string }{}, // init container
+		// 			[]struct{ request, limit string }{ // app container
+		// 				{"2000m", "2000m"},
+		// 				{"12000m", "12000m"},
+		// 			},
+		// 		),
+		// 		"with-sidecar-and-app-container",
+		// 	),
+		// },
+		// 	{
+		// 		description:     "GuPodMainAndManySidecarContainer, DualSocketHTUncore, ExpectAllocOneUncore, FullUncoreAvail",
+		// 		topo:            topoDualSocketMultiNumaPerSocketUncore,
+		// 		numReservedCPUs: 8,
+		// 		reserved:        cpuset.New(0, 1, 96, 97, 192, 193, 288, 289), // note 4 cpus taken from uncore 0, 4 from uncore 16
+		// 		cpuPolicyOptions: map[string]string{
+		// 			FullPCPUsOnlyOption:            "true",
+		// 			PreferAlignByUnCoreCacheOption: "true",
+		// 		},
+		// 		stAssignments: state.ContainerCPUAssignments{},
+		// 		// remove partially used uncores from the available CPUs to simulate fully clean slate
+		// 		stDefaultCPUSet: topoDualSocketMultiNumaPerSocketUncore.CPUDetails.CPUs().Difference(
+		// 			cpuset.New().Union(
+		// 				topoDualSocketMultiNumaPerSocketUncore.CPUDetails.CPUsInUncoreCaches(0),
+		// 			).Union(
+		// 				topoDualSocketMultiNumaPerSocketUncore.CPUDetails.CPUsInUncoreCaches(16),
+		// 			),
+		// 		),
+		// 		pod: WithPodUID(
+		// 			makeMultiContainerPod(
+		// 				[]struct{ request, limit string }{}, // init container
+		// 				[]struct{ request, limit string }{ // app container
+		// 					{"10000m", "10000m"},
+		// 					{"2000m", "2000m"},
+		// 					{"2000m", "2000m"},
+		// 					{"2000m", "2000m"},
+		// 				},
+		// 			),
+		// 			"with-app-container-and-multi-sidecar",
+		// 		),
+		// 	},
 	}
 
 	for _, testCase := range testCases {

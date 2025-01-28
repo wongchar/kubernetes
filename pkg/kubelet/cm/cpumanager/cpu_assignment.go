@@ -581,13 +581,14 @@ func (a *cpuAccumulator) takePartialUncore(uncoreID int, podAlignment bool, unco
 	}
 	a.take(freeCPUs)
 
-	freeCores = a.details.CoresNeededInUncoreCache(1, uncoreID)
-	freeCPUs = a.details.CPUsInCores(freeCores.UnsortedList()...)
-	if podAlignment && freeCPUs.Size() > 0 {
+	// with PreferAlignPodByUncoreCache enabled, create UncoreCache hint reference for next container
+	if podAlignment {
+		freeCores = a.details.CoresNeededInUncoreCache(1, uncoreID)
+		if freeCores.Size() == 0 {
+			uncoreAffinity.Remove(uncoreID)
+			return
+		}
 		uncoreAffinity.Add(uncoreID)
-	}
-	if podAlignment && freeCPUs.Size() == 0 {
-		uncoreAffinity.Remove(uncoreID)
 	}
 }
 
@@ -596,10 +597,26 @@ func (a *cpuAccumulator) takePartialUncore(uncoreID int, podAlignment bool, unco
 func (a *cpuAccumulator) takeUncoreCache(podAlignment bool, uncoreAffinity bitmask.BitMask) {
 	numCPUsInUncore := a.topo.CPUsPerUncore()
 
-	if a.needsLessThan(numCPUsInUncore) && podAlignment && !uncoreAffinity.IsEmpty() {
-		uncoreBits := uncoreAffinity.GetBits()
-		for _, uncore := range uncoreBits {
-			a.takePartialUncore(uncore, podAlignment, uncoreAffinity)
+	// With PreferAlignPodByUncoreCache enabled, try to assign containers to the same UncoreCache if the hint is available
+	if podAlignment {
+		if a.needsLessThan(numCPUsInUncore) && !uncoreAffinity.IsEmpty() {
+			uncoreBits := uncoreAffinity.GetBits()
+			for _, uncore := range uncoreBits {
+				a.takePartialUncore(uncore, podAlignment, uncoreAffinity)
+				if a.isSatisfied() {
+					return
+				}
+			}
+		}
+		for _, uncore := range a.sortAvailableUncoreCaches() {
+			freeCores := a.details.CoresNeededInUncoreCache(numCPUsInUncore, uncore)
+			freeCPUs := a.details.CPUsInCores(freeCores.UnsortedList()...)
+			if freeCPUs.Size() == numCPUsInUncore {
+				a.takePartialUncore(uncore, podAlignment, uncoreAffinity)
+				if a.isSatisfied() {
+					return
+				}
+			}
 		}
 	}
 
