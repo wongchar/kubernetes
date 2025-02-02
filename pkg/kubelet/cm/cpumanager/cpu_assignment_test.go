@@ -750,7 +750,7 @@ func TestTakeByTopologyNUMAPacked(t *testing.T) {
 				strategy = CPUSortingStrategySpread
 			}
 
-			result, err := takeByTopologyNUMAPacked(tc.topo, tc.availableCPUs, tc.numCPUs, strategy, tc.opts.PreferAlignByUncoreCacheOption)
+			result, err := takeByTopologyNUMAPacked(tc.topo, tc.availableCPUs, tc.numCPUs, strategy, tc.opts, nil)
 			if tc.expErr != "" && err != nil && err.Error() != tc.expErr {
 				t.Errorf("expected error to be [%v] but it was [%v]", tc.expErr, err)
 			}
@@ -851,7 +851,7 @@ func TestTakeByTopologyWithSpreadPhysicalCPUsPreferredOption(t *testing.T) {
 		if tc.opts.DistributeCPUsAcrossCores {
 			strategy = CPUSortingStrategySpread
 		}
-		result, err := takeByTopologyNUMAPacked(tc.topo, tc.availableCPUs, tc.numCPUs, strategy, tc.opts.PreferAlignByUncoreCacheOption)
+		result, err := takeByTopologyNUMAPacked(tc.topo, tc.availableCPUs, tc.numCPUs, strategy, tc.opts, nil)
 		if tc.expErr != "" && err.Error() != tc.expErr {
 			t.Errorf("testCase %q failed, expected error to be [%v] but it was [%v]", tc.description, tc.expErr, err)
 		}
@@ -864,6 +864,7 @@ func TestTakeByTopologyWithSpreadPhysicalCPUsPreferredOption(t *testing.T) {
 type takeByTopologyExtendedTestCase struct {
 	description   string
 	topo          *topology.CPUTopology
+	opts          StaticPolicyOptions
 	availableCPUs cpuset.CPUSet
 	numCPUs       int
 	cpuGroupSize  int
@@ -879,6 +880,7 @@ func commonTakeByTopologyExtendedTestCases(t *testing.T) []takeByTopologyExtende
 		extendedTestCases = append(extendedTestCases, takeByTopologyExtendedTestCase{
 			tc.description,
 			tc.topo,
+			tc.opts,
 			tc.availableCPUs,
 			tc.numCPUs,
 			1,
@@ -891,6 +893,7 @@ func commonTakeByTopologyExtendedTestCases(t *testing.T) []takeByTopologyExtende
 		{
 			"allocate 4 full cores with 2 distributed across each NUMA node",
 			topoDualSocketHT,
+			StaticPolicyOptions{},
 			mustParseCPUSet(t, "0-11"),
 			8,
 			1,
@@ -900,6 +903,7 @@ func commonTakeByTopologyExtendedTestCases(t *testing.T) []takeByTopologyExtende
 		{
 			"allocate 32 full cores with 8 distributed across each NUMA node",
 			topoDualSocketMultiNumaPerSocketHT,
+			StaticPolicyOptions{},
 			mustParseCPUSet(t, "0-79"),
 			64,
 			1,
@@ -909,6 +913,7 @@ func commonTakeByTopologyExtendedTestCases(t *testing.T) []takeByTopologyExtende
 		{
 			"allocate 24 full cores with 8 distributed across the first 3 NUMA nodes",
 			topoDualSocketMultiNumaPerSocketHT,
+			StaticPolicyOptions{},
 			mustParseCPUSet(t, "0-79"),
 			48,
 			1,
@@ -918,6 +923,7 @@ func commonTakeByTopologyExtendedTestCases(t *testing.T) []takeByTopologyExtende
 		{
 			"allocate 24 full cores with 8 distributed across the first 3 NUMA nodes (taking all but 2 from the first NUMA node)",
 			topoDualSocketMultiNumaPerSocketHT,
+			StaticPolicyOptions{},
 			mustParseCPUSet(t, "1-29,32-39,41-69,72-79"),
 			48,
 			1,
@@ -927,6 +933,7 @@ func commonTakeByTopologyExtendedTestCases(t *testing.T) []takeByTopologyExtende
 		{
 			"allocate 24 full cores with 8 distributed across the last 3 NUMA nodes (even though all 8 could be allocated from the first NUMA node)",
 			topoDualSocketMultiNumaPerSocketHT,
+			StaticPolicyOptions{},
 			mustParseCPUSet(t, "2-29,31-39,42-69,71-79"),
 			48,
 			1,
@@ -936,6 +943,7 @@ func commonTakeByTopologyExtendedTestCases(t *testing.T) []takeByTopologyExtende
 		{
 			"allocate 8 full cores with 2 distributed across each NUMA node",
 			topoDualSocketMultiNumaPerSocketHT,
+			StaticPolicyOptions{},
 			mustParseCPUSet(t, "0-2,10-12,20-22,30-32,40-41,50-51,60-61,70-71"),
 			16,
 			1,
@@ -945,6 +953,7 @@ func commonTakeByTopologyExtendedTestCases(t *testing.T) []takeByTopologyExtende
 		{
 			"allocate 8 full cores with 2 distributed across each NUMA node",
 			topoDualSocketMultiNumaPerSocketHT,
+			StaticPolicyOptions{},
 			mustParseCPUSet(t, "0-2,10-12,20-22,30-32,40-41,50-51,60-61,70-71"),
 			16,
 			1,
@@ -962,6 +971,7 @@ func TestTakeByTopologyNUMADistributed(t *testing.T) {
 		{
 			"take one cpu from dual socket with HT - core from Socket 0",
 			topoDualSocketHT,
+			StaticPolicyOptions{},
 			cpuset.New(1, 2, 3, 4, 5, 7, 8, 9, 10, 11),
 			1,
 			1,
@@ -971,6 +981,7 @@ func TestTakeByTopologyNUMADistributed(t *testing.T) {
 		{
 			"take one cpu from dual socket with HT - core from Socket 0 - cpuGroupSize 2",
 			topoDualSocketHT,
+			StaticPolicyOptions{},
 			cpuset.New(1, 2, 3, 4, 5, 7, 8, 9, 10, 11),
 			1,
 			2,
@@ -980,6 +991,7 @@ func TestTakeByTopologyNUMADistributed(t *testing.T) {
 		{
 			"allocate 13 full cores distributed across the first 2 NUMA nodes",
 			topoDualSocketMultiNumaPerSocketHT,
+			StaticPolicyOptions{},
 			mustParseCPUSet(t, "0-79"),
 			26,
 			1,
@@ -989,6 +1001,7 @@ func TestTakeByTopologyNUMADistributed(t *testing.T) {
 		{
 			"allocate 13 full cores distributed across the first 2 NUMA nodes (cpuGroupSize 2)",
 			topoDualSocketMultiNumaPerSocketHT,
+			StaticPolicyOptions{},
 			mustParseCPUSet(t, "0-79"),
 			26,
 			2,
@@ -998,6 +1011,7 @@ func TestTakeByTopologyNUMADistributed(t *testing.T) {
 		{
 			"allocate 31 full cores with 15 CPUs distributed across each NUMA node and 1 CPU spilling over to each of NUMA 0, 1",
 			topoDualSocketMultiNumaPerSocketHT,
+			StaticPolicyOptions{},
 			mustParseCPUSet(t, "0-79"),
 			62,
 			1,
@@ -1007,6 +1021,7 @@ func TestTakeByTopologyNUMADistributed(t *testing.T) {
 		{
 			"allocate 31 full cores with 14 CPUs distributed across each NUMA node and 2 CPUs spilling over to each of NUMA 0, 1, 2 (cpuGroupSize 2)",
 			topoDualSocketMultiNumaPerSocketHT,
+			StaticPolicyOptions{},
 			mustParseCPUSet(t, "0-79"),
 			62,
 			2,
@@ -1016,6 +1031,7 @@ func TestTakeByTopologyNUMADistributed(t *testing.T) {
 		{
 			"allocate 31 full cores with 15 CPUs distributed across each NUMA node and 1 CPU spilling over to each of NUMA 2, 3 (to keep balance)",
 			topoDualSocketMultiNumaPerSocketHT,
+			StaticPolicyOptions{},
 			mustParseCPUSet(t, "0-8,10-18,20-39,40-48,50-58,60-79"),
 			62,
 			1,
@@ -1025,6 +1041,7 @@ func TestTakeByTopologyNUMADistributed(t *testing.T) {
 		{
 			"allocate 31 full cores with 14 CPUs distributed across each NUMA node and 2 CPUs spilling over to each of NUMA 0, 2, 3 (to keep balance with cpuGroupSize 2)",
 			topoDualSocketMultiNumaPerSocketHT,
+			StaticPolicyOptions{},
 			mustParseCPUSet(t, "0-8,10-18,20-39,40-48,50-58,60-79"),
 			62,
 			2,
@@ -1034,6 +1051,7 @@ func TestTakeByTopologyNUMADistributed(t *testing.T) {
 		{
 			"ensure bestRemainder chosen with NUMA nodes that have enough CPUs to satisfy the request",
 			topoDualSocketMultiNumaPerSocketHT,
+			StaticPolicyOptions{},
 			mustParseCPUSet(t, "0-3,10-13,20-23,30-36,40-43,50-53,60-63,70-76"),
 			34,
 			1,
@@ -1043,6 +1061,7 @@ func TestTakeByTopologyNUMADistributed(t *testing.T) {
 		{
 			"ensure previous failure encountered on live machine has been fixed (1/1)",
 			topoDualSocketMultiNumaPerSocketHTLarge,
+			StaticPolicyOptions{},
 			mustParseCPUSet(t, "0,128,30,31,158,159,43-47,171-175,62,63,190,191,75-79,203-207,94,96,222,223,101-111,229-239,126,127,254,255"),
 			28,
 			1,
@@ -1053,7 +1072,7 @@ func TestTakeByTopologyNUMADistributed(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
-			result, err := takeByTopologyNUMADistributed(tc.topo, tc.availableCPUs, tc.numCPUs, tc.cpuGroupSize, CPUSortingStrategyPacked)
+			result, err := takeByTopologyNUMADistributed(tc.topo, tc.availableCPUs, tc.numCPUs, tc.cpuGroupSize, CPUSortingStrategyPacked, tc.opts)
 			if err != nil {
 				if tc.expErr == "" {
 					t.Errorf("unexpected error [%v]", err)
