@@ -583,7 +583,9 @@ func (a *cpuAccumulator) takePartialUncore(uncoreID int, podAlignment bool, unco
 
 	// with PreferAlignPodByUncoreCache enabled, create UncoreCache hint reference for next container
 	if podAlignment {
+		// Determine if there is at least one free core within the UncoreCache
 		freeCores = a.details.CoresNeededInUncoreCache(1, uncoreID)
+		// Remove the hit if there are no free cores left within the UncoreCache
 		if freeCores.Size() == 0 {
 			*uncoreCacheAffinity ^= 1 << uncoreID
 			return
@@ -612,6 +614,8 @@ func (a *cpuAccumulator) takeUncoreCache(podAlignment bool, uncoreCacheAffinity 
 				*uncoreBits ^= 1 << uncore
 			}
 		}
+		// With PreferAlignPodByUncoreCache enabled, attempt to assign the container to a fully available UncoreCache
+		// if the UncoreCache affinity hint does not exists or the cpu assignment cannot fit on the same cache
 		for _, uncore := range a.sortAvailableUncoreCaches() {
 			freeCores := a.details.CoresNeededInUncoreCache(numCPUsInUncore, uncore)
 			freeCPUs := a.details.CPUsInCores(freeCores.UnsortedList()...)

@@ -121,7 +121,9 @@ type staticPolicy struct {
 	// we compute this value multiple time, and it's not supposed to change
 	// at runtime - the cpumanager can't deal with runtime topology changes anyway.
 	cpuGroupSize int
-	// future comment
+	// Bitmask used as a hint provider to track which UncoreCaches have been allocated
+	// to containers within a pod.
+	// NOTE: this hint is only updated when PreferAlignPodByUncoreCache is enabled.
 	uncoreCacheAffinity uint64
 }
 
