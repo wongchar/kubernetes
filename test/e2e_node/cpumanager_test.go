@@ -778,8 +778,8 @@ var _ = SIGDescribe("CPU Manager", ginkgo.Ordered, framework.WithSerial(), featu
 			cpuDetails = cpuDetailsFromNode(localNode)
 		})
 
-		// 'prefer-align-cpus-by-uncore-cache' compatible when SMT enabled and disabled
 		ginkgo.It("should admit container asking odd integer amount of cpus", func(ctx context.Context) {
+			// 'prefer-align-cpus-by-uncore-cache' compatible when SMT enabled and disabled
 			// check if the node processor architecture has split or monolithic uncore cache.
 			// prefer-align-cpus-by-uncore-cache can be enabled on non-split uncore cache processors
 			// with no change to default static behavior
