@@ -249,6 +249,24 @@ func TestPolicyOptionsCompatibility(t *testing.T) {
 			},
 			expectedErr: true,
 		},
+		{
+			description: "PreferAlignByUnCoreCache and DistributeCPUsAcrossCores options can not coexist",
+			featureGate: pkgfeatures.CPUManagerPolicyAlphaOptions,
+			policyOptions: map[string]string{
+				PreferAlignByUnCoreCacheOption:  "true",
+				DistributeCPUsAcrossCoresOption: "true",
+			},
+			expectedErr: true,
+		},
+		{
+			description: "PreferAlignByUnCoreCache and DistributeCPUsAcrossNUMA options can not coexist",
+			featureGate: pkgfeatures.CPUManagerPolicyAlphaOptions,
+			policyOptions: map[string]string{
+				PreferAlignByUnCoreCacheOption: "true",
+				DistributeCPUsAcrossNUMAOption: "true",
+			},
+			expectedErr: true,
+		},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.description, func(t *testing.T) {
