@@ -241,6 +241,33 @@ func TestPolicyOptionsCompatibility(t *testing.T) {
 			expectedErr: false,
 		},
 		{
+			description: "PreferAlignByUnCoreCache and StrictCPUReservation set to true",
+			featureGate: pkgfeatures.CPUManagerPolicyAlphaOptions,
+			policyOptions: map[string]string{
+				PreferAlignByUnCoreCacheOption: "true",
+				StrictCPUReservationOption:     "true",
+			},
+			expectedErr: false,
+		},
+		{
+			description: "PreferAlignByUnCoreCache and FullPCPUsOnly set to true",
+			featureGate: pkgfeatures.CPUManagerPolicyAlphaOptions,
+			policyOptions: map[string]string{
+				PreferAlignByUnCoreCacheOption: "true",
+				FullPCPUsOnlyOption:            "true",
+			},
+			expectedErr: false,
+		},
+		{
+			description: "PreferAlignByUnCoreCache and AlignBySocket set to true",
+			featureGate: pkgfeatures.CPUManagerPolicyAlphaOptions,
+			policyOptions: map[string]string{
+				PreferAlignByUnCoreCacheOption: "true",
+				AlignBySocketOption:            "true",
+			},
+			expectedErr: false,
+		},
+		{
 			description: "FullPhysicalCPUsOnly and DistributeCPUsAcrossCores options can not coexist",
 			featureGate: pkgfeatures.CPUManagerPolicyAlphaOptions,
 			policyOptions: map[string]string{
