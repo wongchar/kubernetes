@@ -813,10 +813,8 @@ var _ = SIGDescribe("CPU Manager", ginkgo.Ordered, ginkgo.ContinueOnFailure, fra
 				for _, cnt := range pod.Spec.Containers {
 					ginkgo.By(fmt.Sprintf("validating the container %s on pod %s", cnt.Name, pod.Name))
 
-					// expect allocated CPUs to be able to fit on uncore cache ID equal to 0
-					expUncoreCPUSet, err := uncoreCPUSetFromSysFS(0)
-					framework.ExpectNoError(err, "cannot determine shared cpus for uncore cache on node")
-					gomega.Expect(pod).To(HaveContainerCPUsASubsetOf(cnt.Name, expUncoreCPUSet))
+					// expect allocated CPUs to be from the same uncore cache block
+					gomega.Expect(pod).To(HaveContainerCPUsWithSameUncoreCacheID(cnt.Name))
 				}
 			} else {
 				// for node with monolithic uncore cache processor
@@ -840,9 +838,7 @@ var _ = SIGDescribe("CPU Manager", ginkgo.Ordered, ginkgo.ContinueOnFailure, fra
 					ginkgo.By(fmt.Sprintf("validating the container %s on pod %s", cnt.Name, pod.Name))
 
 					// expect allocated CPUs to be able to fit on uncore cache ID equal to 0
-					expUncoreCPUSet, err := uncoreCPUSetFromSysFS(0)
-					framework.ExpectNoError(err, "cannot determine shared cpus for uncore cache on node")
-					gomega.Expect(pod).To(HaveContainerCPUsASubsetOf(cnt.Name, expUncoreCPUSet))
+					gomega.Expect(pod).To(HaveContainerCPUsWithSameUncoreCacheID(cnt.Name))
 				}
 			}
 		})
@@ -1090,7 +1086,7 @@ var _ = SIGDescribe("CPU Manager", ginkgo.Ordered, ginkgo.ContinueOnFailure, fra
 					// 'prefer-align-cpus-by-uncore-cache' policy options will attempt at best-effort to allocate cpus
 					// so that distribution across uncore caches is minimized. Since the test container is requesting a full
 					// uncore cache worth of cpus and CPU0 is part of the reserved CPUset and not allocatable, the policy will attempt
-					// to allocate cpus from the next available uncore cache by numerical order (uncore cache ID equal to 1)
+					// to allocate cpus from the next available uncore cache
 
 					for _, cnt := range pod.Spec.Containers {
 						ginkgo.By(fmt.Sprintf("validating the container %s on pod %s", cnt.Name, pod.Name))
@@ -1102,12 +1098,8 @@ var _ = SIGDescribe("CPU Manager", ginkgo.Ordered, ginkgo.ContinueOnFailure, fra
 						siblingsCPUs := makeThreadSiblingCPUSet(cpus)
 						gomega.Expect(pod).To(HaveContainerCPUsEqualTo(cnt.Name, siblingsCPUs))
 
-						// expect full uncore cache worth of cpus to be assigned to uncoreCacheID equal to 1
-						// since CPU0 is part of reserved CPUset, resulting in insufficient CPUs from
-						// uncoreCacheID equal to 0
-						expUncoreCPUSet, err := uncoreCPUSetFromSysFS(1)
-						framework.ExpectNoError(err, "cannot determine shared cpus for uncore cache on node")
-						gomega.Expect(pod).To(HaveContainerCPUsEqualTo(cnt.Name, expUncoreCPUSet))
+						// expect full uncore cache worth of cpus to be assigned from the same uncore cache block
+						gomega.Expect(pod).To(HaveContainerCPUsWithSameUncoreCacheID(cnt.Name))
 					}
 				} else {
 					// for node with monolithic uncore cache processor
@@ -1184,7 +1176,7 @@ var _ = SIGDescribe("CPU Manager", ginkgo.Ordered, ginkgo.ContinueOnFailure, fra
 					// 'prefer-align-cpus-by-uncore-cache' policy options will attempt at best-effort to allocate cpus
 					// so that distribution across uncore caches is minimized. Since the test container is requesting a full
 					// uncore cache worth of cpus and CPU0 is part of the reserved CPUset and not allocatable, the policy will attempt
-					// to allocate cpus from the next available uncore cache by numerical order (uncore cache ID equal to 1)
+					// to allocate cpus from the next available uncore cache
 
 					for _, cnt := range pod.Spec.Containers {
 						ginkgo.By(fmt.Sprintf("validating the container %s on pod %s", cnt.Name, pod.Name))
@@ -1196,12 +1188,8 @@ var _ = SIGDescribe("CPU Manager", ginkgo.Ordered, ginkgo.ContinueOnFailure, fra
 						siblingsCPUs := makeThreadSiblingCPUSet(cpus)
 						gomega.Expect(pod).To(HaveContainerCPUsEqualTo(cnt.Name, siblingsCPUs))
 
-						// expect full uncore cache worth of cpus to be assigned to uncoreCacheID equal to 1
-						// since CPU0 is part of reserved CPUset, resulting in insufficient CPUs from
-						// uncoreCacheID equal to 0
-						expUncoreCPUSet, err := uncoreCPUSetFromSysFS(1)
-						framework.ExpectNoError(err, "cannot determine shared cpus for uncore cache on node")
-						gomega.Expect(pod).To(HaveContainerCPUsEqualTo(cnt.Name, expUncoreCPUSet))
+						// expect full uncore cache worth of cpus to be assigned from the same uncore cache block
+						gomega.Expect(pod).To(HaveContainerCPUsWithSameUncoreCacheID(cnt.Name))
 					}
 				} else {
 					// for node with monolithic uncore cache processor
@@ -1223,10 +1211,8 @@ var _ = SIGDescribe("CPU Manager", ginkgo.Ordered, ginkgo.ContinueOnFailure, fra
 					for _, cnt := range pod.Spec.Containers {
 						ginkgo.By(fmt.Sprintf("validating the container %s on pod %s", cnt.Name, pod.Name))
 
-						// expect allocated CPUs to be able to fit on uncore cache ID equal to 0
-						expUncoreCPUSet, err := uncoreCPUSetFromSysFS(0)
-						framework.ExpectNoError(err, "cannot determine shared cpus for uncore cache on node")
-						gomega.Expect(pod).To(HaveContainerCPUsASubsetOf(cnt.Name, expUncoreCPUSet))
+						// expect allocated CPUs to be on the same uncore cache
+						gomega.Expect(pod).To(HaveContainerCPUsWithSameUncoreCacheID(cnt.Name))
 						gomega.Expect(pod).ToNot(HaveContainerCPUsOverlapWith("test-gu-container-align-cpus-by-uncore-cache-on-mono-uncore", reservedCPUs))
 					}
 				}
@@ -1782,14 +1768,15 @@ func HaveStatusReasonMatchingRegex(expr string) types.GomegaMatcher {
 }
 
 type msgData struct {
-	Name           string
-	CurrentCPUs    string
-	ExpectedCPUs   string
-	MismatchedCPUs string
-	Count          int
-	Aligned        int
-	CurrentQuota   string
-	ExpectedQuota  string
+	Name             string
+	CurrentCPUs      string
+	ExpectedCPUs     string
+	MismatchedCPUs   string
+	UncoreCacheAlign string
+	Count            int
+	Aligned          int
+	CurrentQuota     string
+	ExpectedQuota    string
 }
 
 func HaveContainerCPUsCount(ctnName string, val int) types.GomegaMatcher {
@@ -1949,6 +1936,45 @@ func HaveContainerCPUsQuasiThreadSiblings(ctnName string, toleration int) types.
 		md.MismatchedCPUs = mismatchedCPUs.String()
 		return mismatchedCPUs.Size() <= toleration, nil
 	}).WithTemplate("Pod {{.Actual.Namespace}}/{{.Actual.Name}} UID {{.Actual.UID}} has allowed CPUs <{{.Data.CurrentCPUs}}> not all thread sibling pairs (would be <{{.Data.ExpectedCPUs}}> mismatched <{{.Data.MismatchedCPUs}}> toleration <{{.Data.Count}}>) for container {{.Data.Name}}", md)
+}
+
+func HaveContainerCPUsWithSameUncoreCacheID(ctnName string) types.GomegaMatcher {
+	md := &msgData{
+		Name: ctnName,
+	}
+	return gcustom.MakeMatcher(func(actual *v1.Pod) (bool, error) {
+		cpus, err := getContainerAllowedCPUs(actual, ctnName, false)
+		if err != nil {
+			return false, fmt.Errorf("getContainerAllowedCPUs(%s) failed: %w", ctnName, err)
+		}
+		md.CurrentCPUs = cpus.String()
+
+		var commonCacheID *int64
+
+		for _, cpu := range cpus.List() {
+			// determine the Uncore Cache ID for each cpu
+			uncoreID, err := uncoreCacheIDFromSysFS(cpu)
+			if err != nil {
+				return false, fmt.Errorf("failed to read cache ID for CPU %d: %w", cpu, err)
+			}
+
+			// if this the first CPU we check, set the Uncore Cache ID as the reference
+			// for subsequent CPUs, compare the Uncore Cache ID to the reference
+			if commonCacheID == nil {
+				commonCacheID = &uncoreID
+			} else if *commonCacheID != uncoreID {
+				md.UncoreCacheAlign = fmt.Sprintf("shared uncoreID mismatch: CPU %d has uncoreID %d, CPUSet has uncoreID %d", cpu, uncoreID, *commonCacheID)
+				return false, nil
+			}
+		}
+
+		// All CPUs matched the same cache ID
+		md.UncoreCacheAlign = fmt.Sprintf("all CPUs share cache ID %d", *commonCacheID)
+		return true, nil
+	}).WithTemplate(
+		"Pod {{.Actual.Namespace}}/{{.Actual.Name}} UID {{.Actual.UID}} container {{.Data.Name}} has CPUSet <{{.Data.CurrentCPUs}}> where not all CPUs share the same uncore cache ID: {{.Data.UncoreCacheAlign}}",
+		md,
+	)
 }
 
 // Other helpers
@@ -2142,63 +2168,22 @@ func cpuSiblingListFromSysFS(cpuID int64) cpuset.CPUSet {
 	return cpus
 }
 
-func uncoreCPUSetFromSysFS(uncoreID int64) (cpuset.CPUSet, error) {
-	basePath := "/sys/devices/system/cpu"
-	result := cpuset.New()
-	entries, err := os.ReadDir(basePath)
-	// return error if base path directory does not exist
+func uncoreCacheIDFromSysFS(cpuID int) (int64, error) {
+	// expect sysfs path for Uncore Cache ID for each CPU to be:
+	// /sys/devices/system/cpu/cpu#/cache/index3/id
+	cacheIDPath := filepath.Join("/sys/devices/system/cpu", fmt.Sprintf("cpu%d", cpuID), "cache", "index3", "id")
+	cacheIDBytes, err := os.ReadFile(cacheIDPath)
 	if err != nil {
-		return result, fmt.Errorf("failed to read %s: %w", basePath, err)
+		return 0, fmt.Errorf("failed to read cache ID for CPU %d: %w", cpuID, err)
 	}
-	// scan each CPU in sysfs for the following path:
-	// /sys/devices/system/cpu/cpu#
-	for _, entry := range entries {
-		// expect sysfs path for each CPU to be /sys/devices/system/cpu/cpu#
-		// ignore directories that do not match this format
-		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "cpu") {
-			continue
-		}
 
-		// skip non-numeric 'cpu' directories meaning there is not a trailing
-		// cpu ID for the directory (example: skip 'cpufreq')
-		cpuNumStr := strings.TrimPrefix(entry.Name(), "cpu")
-		if _, err := strconv.Atoi(cpuNumStr); err != nil {
-			continue
-		}
-
-		// determine if the input uncoreID matches the cpu's index3 cache ID found at:
-		// /sys/devices/system/cpu/cpu#/cache/index3/id
-		uncoreCacheIDPath := filepath.Join(basePath, entry.Name(), "cache", "index3", "id")
-		sysFSUncoreIDByte, err := os.ReadFile(uncoreCacheIDPath)
-		// return error if sysfs does not contain index3 cache ID
-		if err != nil {
-			return result, fmt.Errorf("failed to read %s: %w", uncoreCacheIDPath, err)
-		}
-		sysFSUncoreIDStr := strings.TrimSpace(string(sysFSUncoreIDByte))
-		sysFSUncoreID, err := strconv.ParseInt(sysFSUncoreIDStr, 10, 64)
-		// if output of /sys/devices/system/cpu/cpu#/cache/index3/id does not exist or
-		// does not match uncoreID input, skip the cpu
-		if err != nil || sysFSUncoreID != uncoreID {
-			continue
-		}
-
-		// once a cpu's index3 cache ID is matched to the input uncoreID
-		// parse the shared cpus for uncoreID (sysfs index3 cache ID) from
-		// /sys/devices/system/cpu/cpu#/cache/index3/shared_cpu_list
-		// and return the cpuset
-		uncoreSharedCPUListPath := filepath.Join(basePath, entry.Name(), "cache", "index3", "shared_cpu_list")
-		uncoreSharedCPUBytes, err := os.ReadFile(uncoreSharedCPUListPath)
-		if err != nil {
-			return result, fmt.Errorf("failed to read shared_cpu_list: %w", err)
-		}
-		uncoreSharedCPUStr := strings.TrimSpace(string(uncoreSharedCPUBytes))
-		uncoreSharedCPU, err := cpuset.Parse(uncoreSharedCPUStr)
-		if err != nil {
-			return result, fmt.Errorf("failed to parse CPUSet from %s: %w", uncoreSharedCPUStr, err)
-		}
-		return uncoreSharedCPU, nil
+	cacheIDStr := strings.TrimSpace(string(cacheIDBytes))
+	cacheID, err := strconv.ParseInt(cacheIDStr, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse cache ID for CPU %d: %w", cpuID, err)
 	}
-	return result, fmt.Errorf("no CPUs found with cache ID %d", uncoreID)
+
+	return cacheID, nil
 }
 
 func makeCPUManagerBEPod(podName string, ctnAttributes []ctnAttribute) *v1.Pod {
