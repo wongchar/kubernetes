@@ -1755,7 +1755,7 @@ func TestStaticPolicyAddWithUncoreAlignment(t *testing.T) {
 			description:     "even integer required on odd integer partial uncore",
 			topo:            topoSingleSocketSingleNumaPerSocketSMTSmallUncore, // 8 cpus per uncore
 			numReservedCPUs: 3,
-			reserved:        cpuset.New(0, 1, 64), // note 4 cpus taken from uncore 0
+			reserved:        cpuset.New(0, 1, 64), // note 3 cpus taken from uncore 0
 			cpuPolicyOptions: map[string]string{
 				PreferAlignByUnCoreCacheOption: "true",
 			},
@@ -1871,7 +1871,7 @@ func TestStaticPolicyAddWithUncoreAlignment(t *testing.T) {
 			description:     "GuPodSingleContainer, DualSocketHTMonoUncore, StrictReserveCompatability",
 			topo:            topoDualSocketSubNumaPerSocketHTMonolithicUncore,
 			numReservedCPUs: 4,
-			reserved:        cpuset.New(0, 1, 120, 121), // first two cpus reserved
+			reserved:        cpuset.New(0, 1, 120, 121), // first two cores reserved
 			cpuPolicyOptions: map[string]string{
 				StrictCPUReservationOption:     "true",
 				PreferAlignByUnCoreCacheOption: "true",

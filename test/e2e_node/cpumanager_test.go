@@ -564,6 +564,281 @@ var _ = SIGDescribe("CPU Manager", ginkgo.Ordered, ginkgo.ContinueOnFailure, fra
 		})
 	})
 
+	ginkgo.When("running guaranteed pod tests with feature gates disabled", ginkgo.Label("guaranteed", "exclusive-cpus", "feature-gate-disabled"), func() {
+		ginkgo.BeforeEach(func(ctx context.Context) {
+			reservedCPUs = cpuset.New(0)
+		})
+
+		ginkgo.It("should allocate exclusively a CPU to a 1-container pod", func(ctx context.Context) {
+			cpuCount := 1
+
+			skipIfAllocatableCPUsLessThan(getLocalNode(ctx, f), cpuCount)
+
+			updateKubeletConfigIfNeeded(ctx, f, configureCPUManagerInKubelet(oldCfg, &cpuManagerKubeletArguments{
+				policyName:              string(cpumanager.PolicyStatic),
+				reservedSystemCPUs:      reservedCPUs, // Not really needed for the tests but helps to make a more precise check
+				enableCPUManagerOptions: false,
+			}))
+
+			pod := makeCPUManagerPod("gu-pod", []ctnAttribute{
+				{
+					ctnName:    "gu-container",
+					cpuRequest: fmt.Sprintf("%dm", 1000*cpuCount),
+					cpuLimit:   fmt.Sprintf("%dm", 1000*cpuCount),
+				},
+			})
+			ginkgo.By("creating the test pod")
+			pod = e2epod.NewPodClient(f).CreateSync(ctx, pod)
+			podMap[string(pod.UID)] = pod
+
+			ginkgo.By("checking if the expected cpuset was assigned")
+
+			// we cannot nor we should predict which CPUs the container gets
+			gomega.Expect(pod).To(HaveContainerCPUsCount("gu-container", cpuCount))
+			gomega.Expect(pod).To(HaveContainerCPUsASubsetOf("gu-container", onlineCPUs))
+			gomega.Expect(pod).ToNot(HaveContainerCPUsOverlapWith("gu-container", reservedCPUs))
+		})
+
+		// we don't use a separate group (gingo.When) with BeforeEach to factor out the tests because each
+		// test need to check for the amount of CPUs it needs.
+
+		ginkgo.It("should allocate exclusively a even number of CPUs to a 1-container pod", func(ctx context.Context) {
+			cpuCount := 2
+
+			skipIfAllocatableCPUsLessThan(getLocalNode(ctx, f), cpuCount)
+
+			updateKubeletConfigIfNeeded(ctx, f, configureCPUManagerInKubelet(oldCfg, &cpuManagerKubeletArguments{
+				policyName:              string(cpumanager.PolicyStatic),
+				reservedSystemCPUs:      reservedCPUs, // Not really needed for the tests but helps to make a more precise check
+				enableCPUManagerOptions: false,
+			}))
+
+			pod := makeCPUManagerPod("gu-pod", []ctnAttribute{
+				{
+					ctnName:    "gu-container",
+					cpuRequest: fmt.Sprintf("%dm", 1000*cpuCount),
+					cpuLimit:   fmt.Sprintf("%dm", 1000*cpuCount),
+				},
+			})
+			ginkgo.By("creating the test pod")
+			pod = e2epod.NewPodClient(f).CreateSync(ctx, pod)
+			podMap[string(pod.UID)] = pod
+
+			ginkgo.By("checking if the expected cpuset was assigned")
+
+			// we cannot nor we should predict which CPUs the container gets
+			gomega.Expect(pod).To(HaveContainerCPUsCount("gu-container", cpuCount))
+			gomega.Expect(pod).To(HaveContainerCPUsASubsetOf("gu-container", onlineCPUs))
+			gomega.Expect(pod).ToNot(HaveContainerCPUsOverlapWith("gu-container", reservedCPUs))
+			// TODO: this is probably too strict but it is the closest of the old test did
+			gomega.Expect(pod).To(HaveContainerCPUsThreadSiblings("gu-container"))
+		})
+
+		ginkgo.It("should allocate exclusively a odd number of CPUs to a 1-container pod", func(ctx context.Context) {
+			cpuCount := 3
+
+			skipIfAllocatableCPUsLessThan(getLocalNode(ctx, f), cpuCount)
+
+			updateKubeletConfigIfNeeded(ctx, f, configureCPUManagerInKubelet(oldCfg, &cpuManagerKubeletArguments{
+				policyName:              string(cpumanager.PolicyStatic),
+				reservedSystemCPUs:      reservedCPUs, // Not really needed for the tests but helps to make a more precise check
+				enableCPUManagerOptions: false,
+			}))
+
+			pod := makeCPUManagerPod("gu-pod", []ctnAttribute{
+				{
+					ctnName:    "gu-container",
+					cpuRequest: fmt.Sprintf("%dm", 1000*cpuCount),
+					cpuLimit:   fmt.Sprintf("%dm", 1000*cpuCount),
+				},
+			})
+			ginkgo.By("creating the test pod")
+			pod = e2epod.NewPodClient(f).CreateSync(ctx, pod)
+			podMap[string(pod.UID)] = pod
+
+			ginkgo.By("checking if the expected cpuset was assigned")
+
+			// we cannot nor we should predict which CPUs the container gets
+			gomega.Expect(pod).To(HaveContainerCPUsCount("gu-container", cpuCount))
+			gomega.Expect(pod).To(HaveContainerCPUsASubsetOf("gu-container", onlineCPUs))
+			gomega.Expect(pod).ToNot(HaveContainerCPUsOverlapWith("gu-container", reservedCPUs))
+			// TODO: this is probably too strict but it is the closest of the old test did
+			toleration := 1
+			gomega.Expect(pod).To(HaveContainerCPUsQuasiThreadSiblings("gu-container", toleration))
+		})
+
+		ginkgo.It("should allocate exclusively CPUs to a multi-container pod (1+2)", func(ctx context.Context) {
+			cpuCount := 3 // total
+
+			skipIfAllocatableCPUsLessThan(getLocalNode(ctx, f), cpuCount)
+
+			updateKubeletConfigIfNeeded(ctx, f, configureCPUManagerInKubelet(oldCfg, &cpuManagerKubeletArguments{
+				policyName:              string(cpumanager.PolicyStatic),
+				reservedSystemCPUs:      reservedCPUs, // Not really needed for the tests but helps to make a more precise check
+				enableCPUManagerOptions: false,
+			}))
+
+			pod := makeCPUManagerPod("gu-pod", []ctnAttribute{
+				{
+					ctnName:    "gu-container-1",
+					cpuRequest: "1000m",
+					cpuLimit:   "1000m",
+				},
+				{
+					ctnName:    "gu-container-2",
+					cpuRequest: "2000m",
+					cpuLimit:   "2000m",
+				},
+			})
+			ginkgo.By("creating the test pod")
+			pod = e2epod.NewPodClient(f).CreateSync(ctx, pod)
+			podMap[string(pod.UID)] = pod
+
+			ginkgo.By("checking if the expected cpuset was assigned")
+
+			// we cannot nor we should predict which CPUs the container gets
+			gomega.Expect(pod).To(HaveContainerCPUsCount("gu-container-1", 1))
+			gomega.Expect(pod).To(HaveContainerCPUsASubsetOf("gu-container-1", onlineCPUs))
+			gomega.Expect(pod).ToNot(HaveContainerCPUsOverlapWith("gu-container-1", reservedCPUs))
+
+			gomega.Expect(pod).To(HaveContainerCPUsCount("gu-container-2", 2))
+			gomega.Expect(pod).To(HaveContainerCPUsASubsetOf("gu-container-2", onlineCPUs))
+			gomega.Expect(pod).ToNot(HaveContainerCPUsOverlapWith("gu-container-2", reservedCPUs))
+			// TODO: this is probably too strict but it is the closest of the old test did
+			gomega.Expect(pod).To(HaveContainerCPUsThreadSiblings("gu-container-2"))
+		})
+
+		ginkgo.It("should allocate exclusively CPUs to a multi-container pod (3+2)", func(ctx context.Context) {
+			cpuCount := 5 // total
+
+			skipIfAllocatableCPUsLessThan(getLocalNode(ctx, f), cpuCount)
+
+			updateKubeletConfigIfNeeded(ctx, f, configureCPUManagerInKubelet(oldCfg, &cpuManagerKubeletArguments{
+				policyName:              string(cpumanager.PolicyStatic),
+				reservedSystemCPUs:      reservedCPUs, // Not really needed for the tests but helps to make a more precise check
+				enableCPUManagerOptions: false,
+			}))
+
+			pod := makeCPUManagerPod("gu-pod", []ctnAttribute{
+				{
+					ctnName:    "gu-container-1",
+					cpuRequest: "3000m",
+					cpuLimit:   "3000m",
+				},
+				{
+					ctnName:    "gu-container-2",
+					cpuRequest: "2000m",
+					cpuLimit:   "2000m",
+				},
+			})
+			ginkgo.By("creating the test pod")
+			pod = e2epod.NewPodClient(f).CreateSync(ctx, pod)
+			podMap[string(pod.UID)] = pod
+
+			ginkgo.By("checking if the expected cpuset was assigned")
+
+			// we cannot nor we should predict which CPUs the container gets
+			gomega.Expect(pod).To(HaveContainerCPUsCount("gu-container-1", 3))
+			gomega.Expect(pod).To(HaveContainerCPUsASubsetOf("gu-container-1", onlineCPUs))
+			gomega.Expect(pod).ToNot(HaveContainerCPUsOverlapWith("gu-container-1", reservedCPUs))
+			toleration := 1
+			gomega.Expect(pod).To(HaveContainerCPUsQuasiThreadSiblings("gu-container-1", toleration))
+
+			gomega.Expect(pod).To(HaveContainerCPUsCount("gu-container-2", 2))
+			gomega.Expect(pod).To(HaveContainerCPUsASubsetOf("gu-container-2", onlineCPUs))
+			gomega.Expect(pod).ToNot(HaveContainerCPUsOverlapWith("gu-container-2", reservedCPUs))
+			gomega.Expect(pod).To(HaveContainerCPUsThreadSiblings("gu-container-2"))
+		})
+
+		ginkgo.It("should allocate exclusively CPUs to a multi-container pod (4+2)", func(ctx context.Context) {
+			cpuCount := 6 // total
+
+			skipIfAllocatableCPUsLessThan(getLocalNode(ctx, f), cpuCount)
+
+			updateKubeletConfigIfNeeded(ctx, f, configureCPUManagerInKubelet(oldCfg, &cpuManagerKubeletArguments{
+				policyName:              string(cpumanager.PolicyStatic),
+				reservedSystemCPUs:      reservedCPUs, // Not really needed for the tests but helps to make a more precise check
+				enableCPUManagerOptions: false,
+			}))
+
+			pod := makeCPUManagerPod("gu-pod", []ctnAttribute{
+				{
+					ctnName:    "gu-container-1",
+					cpuRequest: "4000m",
+					cpuLimit:   "4000m",
+				},
+				{
+					ctnName:    "gu-container-2",
+					cpuRequest: "2000m",
+					cpuLimit:   "2000m",
+				},
+			})
+			ginkgo.By("creating the test pod")
+			pod = e2epod.NewPodClient(f).CreateSync(ctx, pod)
+			podMap[string(pod.UID)] = pod
+
+			ginkgo.By("checking if the expected cpuset was assigned")
+
+			// we cannot nor we should predict which CPUs the container gets
+			gomega.Expect(pod).To(HaveContainerCPUsCount("gu-container-1", 4))
+			gomega.Expect(pod).To(HaveContainerCPUsASubsetOf("gu-container-1", onlineCPUs))
+			gomega.Expect(pod).ToNot(HaveContainerCPUsOverlapWith("gu-container-1", reservedCPUs))
+			gomega.Expect(pod).To(HaveContainerCPUsThreadSiblings("gu-container-1"))
+
+			gomega.Expect(pod).To(HaveContainerCPUsCount("gu-container-2", 2))
+			gomega.Expect(pod).To(HaveContainerCPUsASubsetOf("gu-container-2", onlineCPUs))
+			gomega.Expect(pod).ToNot(HaveContainerCPUsOverlapWith("gu-container-2", reservedCPUs))
+			gomega.Expect(pod).To(HaveContainerCPUsThreadSiblings("gu-container-2"))
+		})
+
+		ginkgo.It("should allocate exclusively a CPU to multiple 1-container pods", func(ctx context.Context) {
+			cpuCount := 4 // total
+
+			skipIfAllocatableCPUsLessThan(getLocalNode(ctx, f), cpuCount)
+
+			updateKubeletConfigIfNeeded(ctx, f, configureCPUManagerInKubelet(oldCfg, &cpuManagerKubeletArguments{
+				policyName:              string(cpumanager.PolicyStatic),
+				reservedSystemCPUs:      reservedCPUs, // Not really needed for the tests but helps to make a more precise check
+				enableCPUManagerOptions: false,
+			}))
+
+			pod1 := makeCPUManagerPod("gu-pod-1", []ctnAttribute{
+				{
+					ctnName:    "gu-container-1",
+					cpuRequest: "2000m",
+					cpuLimit:   "2000m",
+				},
+			})
+			ginkgo.By("creating the test pod 1")
+			pod1 = e2epod.NewPodClient(f).CreateSync(ctx, pod1)
+			podMap[string(pod1.UID)] = pod1
+
+			pod2 := makeCPUManagerPod("gu-pod-2", []ctnAttribute{
+				{
+					ctnName:    "gu-container-2",
+					cpuRequest: "2000m",
+					cpuLimit:   "2000m",
+				},
+			})
+			ginkgo.By("creating the test pod 2")
+			pod2 = e2epod.NewPodClient(f).CreateSync(ctx, pod2)
+			podMap[string(pod2.UID)] = pod2
+
+			ginkgo.By("checking if the expected cpuset was assigned")
+
+			// we cannot nor we should predict which CPUs the container gets
+			gomega.Expect(pod1).To(HaveContainerCPUsCount("gu-container-1", 2))
+			gomega.Expect(pod1).To(HaveContainerCPUsASubsetOf("gu-container-1", onlineCPUs))
+			gomega.Expect(pod1).ToNot(HaveContainerCPUsOverlapWith("gu-container-1", reservedCPUs))
+			gomega.Expect(pod1).To(HaveContainerCPUsThreadSiblings("gu-container-1"))
+
+			gomega.Expect(pod2).To(HaveContainerCPUsCount("gu-container-2", 2))
+			gomega.Expect(pod2).To(HaveContainerCPUsASubsetOf("gu-container-2", onlineCPUs))
+			gomega.Expect(pod2).ToNot(HaveContainerCPUsOverlapWith("gu-container-2", reservedCPUs))
+			gomega.Expect(pod2).To(HaveContainerCPUsThreadSiblings("gu-container-2"))
+		})
+	})
+
 	ginkgo.When("running with strict CPU reservation", ginkgo.Label("strict-cpu-reservation"), func() {
 		ginkgo.BeforeEach(func(ctx context.Context) {
 			reservedCPUs = cpuset.New(0)
@@ -813,8 +1088,8 @@ var _ = SIGDescribe("CPU Manager", ginkgo.Ordered, ginkgo.ContinueOnFailure, fra
 				for _, cnt := range pod.Spec.Containers {
 					ginkgo.By(fmt.Sprintf("validating the container %s on pod %s", cnt.Name, pod.Name))
 
-					// expect allocated CPUs to be from the same uncore cache block
 					gomega.Expect(pod).To(HaveContainerCPUsWithSameUncoreCacheID(cnt.Name))
+					gomega.Expect(pod).ToNot(HaveContainerCPUsShareUncoreCacheWith(cnt.Name, reservedCPUs))
 				}
 			} else {
 				// for node with monolithic uncore cache processor
@@ -837,7 +1112,6 @@ var _ = SIGDescribe("CPU Manager", ginkgo.Ordered, ginkgo.ContinueOnFailure, fra
 				for _, cnt := range pod.Spec.Containers {
 					ginkgo.By(fmt.Sprintf("validating the container %s on pod %s", cnt.Name, pod.Name))
 
-					// expect allocated CPUs to be able to fit on uncore cache ID equal to 0
 					gomega.Expect(pod).To(HaveContainerCPUsWithSameUncoreCacheID(cnt.Name))
 				}
 			}
@@ -1066,7 +1340,6 @@ var _ = SIGDescribe("CPU Manager", ginkgo.Ordered, ginkgo.ContinueOnFailure, fra
 				// with no change to default static behavior
 				allocatableCPUs := cpuDetailsFromNode(getLocalNode(ctx, f)).Allocatable
 				hasSplitUncore := (allocatableCPUs > int64(uncoreGroupSize))
-				// hasSplitUncore := (nodeCPcpuDetails.Allocatable > int64(uncoreGroupSize))
 
 				if hasSplitUncore {
 					// for node with split uncore cache processor
@@ -1098,8 +1371,8 @@ var _ = SIGDescribe("CPU Manager", ginkgo.Ordered, ginkgo.ContinueOnFailure, fra
 						siblingsCPUs := makeThreadSiblingCPUSet(cpus)
 						gomega.Expect(pod).To(HaveContainerCPUsEqualTo(cnt.Name, siblingsCPUs))
 
-						// expect full uncore cache worth of cpus to be assigned from the same uncore cache block
 						gomega.Expect(pod).To(HaveContainerCPUsWithSameUncoreCacheID(cnt.Name))
+						gomega.Expect(pod).ToNot(HaveContainerCPUsShareUncoreCacheWith(cnt.Name, reservedCPUs))
 					}
 				} else {
 					// for node with monolithic uncore cache processor
@@ -1188,8 +1461,8 @@ var _ = SIGDescribe("CPU Manager", ginkgo.Ordered, ginkgo.ContinueOnFailure, fra
 						siblingsCPUs := makeThreadSiblingCPUSet(cpus)
 						gomega.Expect(pod).To(HaveContainerCPUsEqualTo(cnt.Name, siblingsCPUs))
 
-						// expect full uncore cache worth of cpus to be assigned from the same uncore cache block
 						gomega.Expect(pod).To(HaveContainerCPUsWithSameUncoreCacheID(cnt.Name))
+						gomega.Expect(pod).ToNot(HaveContainerCPUsShareUncoreCacheWith(cnt.Name, reservedCPUs))
 					}
 				} else {
 					// for node with monolithic uncore cache processor
@@ -1973,6 +2246,48 @@ func HaveContainerCPUsWithSameUncoreCacheID(ctnName string) types.GomegaMatcher 
 		return true, nil
 	}).WithTemplate(
 		"Pod {{.Actual.Namespace}}/{{.Actual.Name}} UID {{.Actual.UID}} container {{.Data.Name}} has CPUSet <{{.Data.CurrentCPUs}}> where not all CPUs share the same uncore cache ID: {{.Data.UncoreCacheAlign}}",
+		md,
+	)
+}
+
+func HaveContainerCPUsShareUncoreCacheWith(ctnName string, ref cpuset.CPUSet) types.GomegaMatcher {
+	md := &msgData{
+		Name: ctnName,
+	}
+	return gcustom.MakeMatcher(func(actual *v1.Pod) (bool, error) {
+		containerCPUs, err := getContainerAllowedCPUs(actual, ctnName, false)
+		if err != nil {
+			return false, fmt.Errorf("getContainerAllowedCPUs(%s) failed: %w", ctnName, err)
+		}
+		md.CurrentCPUs = containerCPUs.String()
+
+		// Build set of uncore cache IDs from the reference cpuset
+		refUncoreIDs := make(map[int64]struct{})
+		for _, cpu := range ref.List() {
+			uncoreID, err := uncoreCacheIDFromSysFS(cpu)
+			if err != nil {
+				return false, fmt.Errorf("failed to read uncore cache ID for reference CPU %d: %w", cpu, err)
+			}
+			refUncoreIDs[uncoreID] = struct{}{}
+		}
+
+		// Check if any container CPUs share an uncore ID with the reference set
+		for _, cpu := range containerCPUs.List() {
+			uncoreID, err := uncoreCacheIDFromSysFS(cpu)
+			if err != nil {
+				return false, fmt.Errorf("failed to read uncore cache ID for container CPU %d: %w", cpu, err)
+			}
+			if _, ok := refUncoreIDs[uncoreID]; ok {
+				md.UncoreCacheAlign = fmt.Sprintf("container CPU %d shares uncore ID %d with reference cpuset", cpu, uncoreID)
+				return true, nil
+			}
+		}
+
+		// No shared uncore IDs found
+		md.UncoreCacheAlign = fmt.Sprintf("no container CPUs share any uncore cache ID with reference cpuset")
+		return false, nil
+	}).WithTemplate(
+		"Pod {{.Actual.Namespace}}/{{.Actual.Name}} UID {{.Actual.UID}} container {{.Data.Name}} has CPUSet <{{.Data.CurrentCPUs}}> with no shared uncore cache ID with reference CPUSet",
 		md,
 	)
 }
