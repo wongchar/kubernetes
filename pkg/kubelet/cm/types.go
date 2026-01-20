@@ -41,6 +41,8 @@ type ResourceConfig struct {
 	PidsLimit *int64
 	// Unified for cgroup v2
 	Unified map[string]string
+	// CPUSet aligned to Uncore Cache IDs
+	CPUSetByUncoreCache map[int]cpuset.CPUSet
 }
 
 // CgroupName is the abstract name of a cgroup prior to any driver specific conversion.
@@ -94,6 +96,9 @@ type CgroupManager interface {
 	SetCgroupConfig(logger klog.Logger, name CgroupName, resourceConfig *ResourceConfig) error
 	// Version of the cgroup implementation on the host
 	Version() int
+	// SetUncoreCacheTopology allows the container manager to pass uncore cache
+	// hardware info down to the cgroup layer.
+	SetUncoreCacheTopology(uncoreCacheTopology map[int]cpuset.CPUSet)
 }
 
 // QOSContainersInfo stores the names of containers per qos

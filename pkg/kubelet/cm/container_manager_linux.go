@@ -51,6 +51,7 @@ import (
 	kubefeatures "k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/kubelet/cadvisor"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager"
+	topology "k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/topology"
 	"k8s.io/kubernetes/pkg/kubelet/cm/devicemanager"
 	"k8s.io/kubernetes/pkg/kubelet/cm/dra"
 	"k8s.io/kubernetes/pkg/kubelet/cm/memorymanager"
@@ -69,6 +70,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/util/swap"
 	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
 	"k8s.io/kubernetes/pkg/util/oom"
+	"k8s.io/utils/cpuset"
 )
 
 // A non-user container tracked by the Kubelet.
@@ -138,6 +140,8 @@ type containerManagerImpl struct {
 	kubeClient clientset.Interface
 	// resourceUpdates is a channel that provides resource updates.
 	resourceUpdates chan resourceupdates.Update
+	// Holds the CPUSet that corresponds to each Uncore Cache ID.
+	uncoreCacheTopology map[int]cpuset.CPUSet
 }
 
 type features struct {
@@ -641,6 +645,31 @@ func (cm *containerManagerImpl) Start(ctx context.Context, node *v1.Node,
 	// cache the node Info including resource capacity and
 	// allocatable of the node
 	cm.nodeInfo = node
+
+	if utilfeature.DefaultFeatureGate.Enabled(kubefeatures.PreferAlignCgroupByUncoreCache) {
+		logger.Info("Feature PreferAlignCgroupByUncoreCache is enabled, initializing topology")
+
+		machineInfo, err := cm.cadvisorInterface.MachineInfo()
+		if err != nil {
+			logger.Error(err, "Failed to get machine info for uncore cache alignment")
+		} else {
+			topo, err := topology.Discover(logger, machineInfo)
+			if err != nil {
+				logger.Error(err, "Failed to discover CPU topology for uncore cache alignment")
+			} else {
+				// Call helper function and save to the struct
+				cm.uncoreCacheTopology = GetUncoreCacheTopology(topo)
+
+				// pass it down to the cgroupManager as well:
+				if cm.cgroupManager != nil {
+					cm.cgroupManager.SetUncoreCacheTopology(cm.uncoreCacheTopology)
+				}
+
+				logger.Info("Successfully initialized uncore cache topology",
+					"cacheCount", len(cm.uncoreCacheTopology))
+			}
+		}
+	}
 
 	if localStorageCapacityIsolation {
 		rootfs, err := cm.cadvisorInterface.RootFsInfo()

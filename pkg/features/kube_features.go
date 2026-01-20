@@ -766,6 +766,12 @@ const (
 	// Enables PortForward to be proxied with a websocket client
 	PortForwardWebsockets featuregate.Feature = "PortForwardWebsockets"
 
+	// owner: @wongchar
+	// kep: tbd
+	//
+	// Enables Pod Cgroup CPUSets to be restricted to Uncore Caches
+	PreferAlignCgroupByUncoreCache featuregate.Feature = "PreferAlignCgroupByUncoreCache"
+
 	// owner: @danwinship
 	// kep: https://kep.k8s.io/3015
 	//
@@ -1655,6 +1661,10 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 	PortForwardWebsockets: {
 		{Version: version.MustParse("1.30"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("1.31"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	PreferAlignCgroupByUncoreCache: {
+		{Version: version.MustParse("1.34"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	PreferSameTrafficDistribution: {

@@ -34,7 +34,9 @@ import (
 	v1helper "k8s.io/kubernetes/pkg/apis/core/v1/helper"
 	v1qos "k8s.io/kubernetes/pkg/apis/core/v1/helper/qos"
 	kubefeatures "k8s.io/kubernetes/pkg/features"
+	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/topology"
 	"k8s.io/kubernetes/pkg/kubelet/cm/util"
+	"k8s.io/utils/cpuset"
 )
 
 const (
@@ -201,6 +203,10 @@ func ResourceConfigForPod(allocatedPod *v1.Pod, enforceCPULimits bool, cpuPeriod
 		if memoryLimitsDeclared {
 			result.Memory = &memoryLimits
 		}
+
+		// force burstable pod restriction (experimental)
+		//result.CPUSet, _ = cpuset.Parse("8-15")
+
 	} else {
 		shares := uint64(MinShares)
 		result.CPUShares = &shares
@@ -220,6 +226,22 @@ func ResourceConfigForPod(allocatedPod *v1.Pod, enforceCPULimits bool, cpuPeriod
 	}
 
 	return result
+}
+
+func GetUncoreCacheTopology(topo *topology.CPUTopology) map[int]cpuset.CPUSet {
+	uncoreCacheTopology := make(map[int]cpuset.CPUSet)
+
+	// Iterate through every CPU discovered on the system
+	for cpuID, details := range topo.CPUDetails {
+		// In the topology package, L3 cache ID is often stored
+		// in a field named 'L3CacheID' or 'PackageID' (if L3 is socket-wide)
+		cacheID := details.UncoreCacheID
+
+		// Get the current set for this cache, add the new CPU, and save it back
+		existingSet := uncoreCacheTopology[cacheID]
+		uncoreCacheTopology[cacheID] = existingSet.Union(cpuset.New(cpuID))
+	}
+	return uncoreCacheTopology
 }
 
 // getCgroupSubsystemsV1 returns information about the mounted cgroup v1 subsystems

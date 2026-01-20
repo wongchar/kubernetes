@@ -21,6 +21,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -34,7 +35,10 @@ import (
 
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
+	kubefeatures "k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/kubelet/metrics"
+	"k8s.io/utils/cpuset"
 )
 
 const (
@@ -145,6 +149,27 @@ type cgroupCommon struct {
 
 	// useSystemd tells if systemd cgroup manager should be used.
 	useSystemd bool
+
+	// The following struct fields are used when PreferAlignCgroupsByUncoreCache
+	// is enabled:
+
+	// uncoreCacheTopology stores the CPU architecture mapping of
+	// uncore cache IDs to the respective CPU sets
+	uncoreCacheTopology map[int]cpuset.CPUSet
+
+	// bitmask that stores the state of uncore caches with a fully available CPUSet
+	// (bit N is 1 if Cache ID N has any amount of CPUs occupied)
+	occupiedUncoreMask uint64
+
+	// tracks the CPU capacity available per uncore cache ID
+	uncoreCacheCapacity map[int]int
+
+	// tracks the quantity of CPUs designated from each
+	// uncore cache by each pod
+	podUncoreAllocations map[string]map[int]int
+
+	// A mutex to ensure thread-safety during pod updates
+	uncoreLock sync.Mutex
 }
 
 // Make sure that cgroupV1impl and cgroupV2impl implement the CgroupManager interface
@@ -244,6 +269,13 @@ func (m *cgroupCommon) Destroy(logger klog.Logger, cgroupConfig *CgroupConfig) e
 	manager, err := libcontainercgroupmanager.New(libcontainerCgroupConfig)
 	if err != nil {
 		return err
+	}
+
+	// NOTE to self!: cgroupConfig is missing info on purpose (only name is needed for destroy).
+
+	// remove the tracked CPU restrictions so CPUs can be redistributed
+	if utilfeature.DefaultFeatureGate.Enabled(kubefeatures.PreferAlignCgroupByUncoreCache) {
+		m.refundUncoreCapacity(cgroupConfig)
 	}
 
 	// Delete cgroups using libcontainers Managers Destroy() method
@@ -384,6 +416,57 @@ func (m *cgroupCommon) Create(logger klog.Logger, cgroupConfig *CgroupConfig) er
 		metrics.CgroupManagerDuration.WithLabelValues("create").Observe(metrics.SinceInSeconds(start))
 	}()
 
+	if utilfeature.DefaultFeatureGate.Enabled(kubefeatures.PreferAlignCgroupByUncoreCache) &&
+		len(m.uncoreCacheTopology) > 0 && cgroupConfig != nil && cgroupConfig.ResourceParameters != nil {
+
+		logger.Info("DEBUG: Cgroup Update Triggered", "name", fmt.Sprintf("%v", cgroupConfig.Name))
+
+		nameStr := fmt.Sprintf("%v", cgroupConfig.Name)
+
+		if cgroupConfig.ResourceParameters.CPUSet.IsEmpty() {
+			rp := cgroupConfig.ResourceParameters
+			neededCores := 0
+
+			// TODO: check number of uncore caches, skip if number of uncore is <=2
+			// TODO: currently not compatible with static CPU manager
+			// TODO: implement detection of static CPU manager allocation here
+			// TODO: current assumption is for integer CPUs, need to handle fractional CPUs too
+
+			// Calculate CPU quantity: Limit (Quota) takes priority over Request (Shares)
+			if rp.CPUQuota != nil && rp.CPUPeriod != nil && *rp.CPUPeriod > 0 {
+				// Quantity = Quota / Period (e.g., 200000 / 100000 = 2 cores)
+				neededCores = int(*rp.CPUQuota / int64(*rp.CPUPeriod))
+			} else if rp.CPUShares != nil {
+				// Fallback to Request: Shares / 1024 (e.g., 2048 / 1024 = 2 cores)
+				neededCores = int(*rp.CPUShares / 1024)
+			}
+
+			// TODO: this logic breaks coreDNS initialization (0.1 cpus), need to revisit
+			// If calculation yields 0 (e.g. very small pod with fractional CPU requirement),
+			// treat as 1 core to ensure it gets at least one isolated cache.
+			//if neededCores <= 0 && (rp.CPUQuota != nil || rp.CPUShares != nil) {
+			//	neededCores = 1
+			//}
+
+			// PreferAlignCgroupsByUncoreCache applies to Guaranteed and Burstable QoS
+			// ignore Best Effort QoS
+			if neededCores > 0 {
+				// Obtain the optimal CPUSets by groups of uncore cache
+				// Restrict the cgroup CPUs of the pod to the obtained CPUSet
+				alignedSet := m.allocateUncoreCaches(cgroupConfig, neededCores)
+
+				if !alignedSet.IsEmpty() {
+					// Set the CPUSet in the ResourceParameters config before libcontainer is initialized
+					rp.CPUSet = alignedSet
+					logger.Info("PreferAlignCgroupByUncoreCache: Aligned pod to uncore cache domain",
+						"pod", nameStr,
+						"cpus", rp.CPUSet.String(),
+						"needed", neededCores)
+				}
+			}
+		}
+	}
+
 	libcontainerCgroupConfig := m.libctCgroupConfig(logger, cgroupConfig, true)
 	manager, err := libcontainercgroupmanager.New(libcontainerCgroupConfig)
 	if err != nil {
@@ -482,4 +565,145 @@ func readCgroupMemoryConfig(cgroupPath string, memLimitFile string) (*ResourceCo
 	//TODO(vinaykul,InPlacePodVerticalScaling): Add memory request support
 	return &ResourceConfig{Memory: &mLim}, nil
 
+}
+
+// When PreferAlignCgroupsByUncoreCache is enabled, build store the
+// uncore cache topology in the cgroupCommon struct
+func (m *cgroupCommon) SetUncoreCacheTopology(topo map[int]cpuset.CPUSet) {
+	m.uncoreLock.Lock()
+	defer m.uncoreLock.Unlock()
+
+	// Set the topology
+	m.uncoreCacheTopology = topo
+
+	// Initialize the CPU capacity map based on the uncore cache topology
+	m.uncoreCacheCapacity = make(map[int]int)
+	for id, cacheCPUSet := range topo {
+		m.uncoreCacheCapacity[id] = cacheCPUSet.Size()
+	}
+
+	// Initialize pod tracker for uncore cache CPU allocations
+	m.podUncoreAllocations = make(map[string]map[int]int)
+
+	// Reset the mask (every uncore cache starts as 0/Pristine)
+	m.occupiedUncoreMask = 0
+}
+
+func (m *cgroupCommon) allocateUncoreCaches(config *CgroupConfig, needed int) cpuset.CPUSet {
+	m.uncoreLock.Lock()
+	defer m.uncoreLock.Unlock()
+
+	result := cpuset.New()
+	remaining := needed
+	// We use the unique cgroup Path as the key for the podUncoreAllocations map
+	identifier := strings.Join(config.Name, "/")
+	// Track exactly how many CPUs are assigned from each cache ID for this specific pod
+	podUncoreRecord := make(map[int]int)
+
+	// Ensure stable iteration order for the occupiedUncoreMask bitmask/topology
+	// (iteration over maps is random in order)
+	ids := make([]int, 0, len(m.uncoreCacheTopology))
+	for id := range m.uncoreCacheTopology {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+
+	// Attempt to allocate full uncore cache worth of CPUs (aka "Pristine" uncore cache)
+	for _, id := range ids {
+		isPristine := (m.occupiedUncoreMask & (1 << uint(id))) == 0
+		if isPristine {
+			cacheCPUs := m.uncoreCacheTopology[id]
+			capacity := m.uncoreCacheCapacity[id]
+
+			// Determine quantity of CPUs to take from this pristine cache
+			take := capacity
+			if remaining < capacity {
+				take = remaining
+			}
+
+			// Allocate the full cache affinity to the CPUSet
+			result = result.Union(cacheCPUs)
+
+			// Record the actual core count debt
+			podUncoreRecord[id] = take
+
+			// Update Global States
+			// Turn on bit to indicate cache is not pristine
+			m.occupiedUncoreMask |= (1 << uint(id))
+			// Track quantity of CPUs given from this uncore cache
+			m.uncoreCacheCapacity[id] -= take
+			// Subtract the given CPUs from the needed quantity
+			remaining -= take
+		}
+		if remaining <= 0 {
+			break
+		}
+	}
+
+	// If we still need more cores, we now look at caches that are already
+	// partially occupied (isPristine == false).
+	// TODO: Sort by most available uncore cache capacity to be efficient
+	// and reduce uncore cache spread
+	if remaining > 0 {
+		for _, id := range ids {
+			isPristine := (m.occupiedUncoreMask & (1 << uint(id))) == 0
+			// Only look at non-pristine uncore caches (already occupied)
+			if !isPristine {
+				available := m.uncoreCacheCapacity[id]
+				if available > 0 {
+					cacheCPUs := m.uncoreCacheTopology[id]
+
+					take := available
+					if remaining < available {
+						take = remaining
+					}
+
+					result = result.Union(cacheCPUs)
+
+					// Add to existing record for this ID
+					podUncoreRecord[id] += take
+
+					m.uncoreCacheCapacity[id] -= take
+					remaining -= take
+				}
+			}
+			if remaining <= 0 {
+				break
+			}
+		}
+	}
+
+	// Store the finalized record for Destroy()
+	m.podUncoreAllocations[identifier] = podUncoreRecord
+
+	return result
+}
+
+func (m *cgroupCommon) refundUncoreCapacity(config *CgroupConfig) {
+	// Generate the same unique identifier used during uncore cache allocation
+	identifier := strings.Join(config.Name, "/")
+
+	m.uncoreLock.Lock()
+	defer m.uncoreLock.Unlock()
+
+	// Retrieve the pod's specific allocation record
+	podUncoreRecord, exists := m.podUncoreAllocations[identifier]
+	if !exists {
+		return
+	}
+
+	// Perform the refund of uncore cache CPU capacity
+	for id, amount := range podUncoreRecord {
+		m.uncoreCacheCapacity[id] += amount
+
+		maxSize := m.uncoreCacheTopology[id].Size()
+		if m.uncoreCacheCapacity[id] >= maxSize {
+			m.uncoreCacheCapacity[id] = maxSize
+			// Turn bit OFF (back to pristine)
+			m.occupiedUncoreMask &= ^(1 << uint(id))
+		}
+	}
+
+	// Cleanup the tracking map
+	delete(m.podUncoreAllocations, identifier)
 }
